@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import polars as pl
@@ -14,6 +15,7 @@ from continuous_futures_builder.data_access import (
 from continuous_futures_builder.models import (
     ContinuousFuturesBuildConfig,
     ContinuousFuturesBuildResult,
+    ContractCandleSummary,
     ContractChainResult,
     FuturesContract,
 )
@@ -21,6 +23,16 @@ from continuous_futures_builder.roll_calendar import build_fixed_days_roll_calen
 from continuous_futures_builder.schemas import validate_continuous_schema
 from continuous_futures_builder.stitcher import stitch_unadjusted
 from continuous_futures_builder.storage import ContinuousFuturesStorage
+
+
+def _norm(value: str) -> str:
+    return value.strip().upper()
+
+
+def _date_from_ts(value: object) -> object:
+    if hasattr(value, "date"):
+        return value.date()
+    return value
 
 
 class ContinuousFuturesBuilder:
@@ -52,6 +64,85 @@ class ContinuousFuturesBuilder:
             market=market,
         )
 
+    def _common_assetcode(self, contracts: Iterable[FuturesContract]) -> str | None:
+        assetcodes = {
+            contract.assetcode for contract in contracts if contract.assetcode is not None
+        }
+        if len(assetcodes) == 1:
+            return next(iter(assetcodes))
+        return None
+
+    def _augment_chain_from_candle_catalog(
+        self,
+        chain: ContractChainResult,
+        *,
+        exchange: str,
+        engine: str,
+        market: str,
+        timeframe: str,
+        secid_prefix: str | None,
+        include_secid: list[str] | None,
+        exclude_secid: list[str] | None,
+        asset_code: str | None,
+    ) -> ContractChainResult:
+        if secid_prefix is None and not include_secid:
+            return chain
+
+        existing = {_norm(contract.secid) for contract in chain.contracts}
+        excluded = {_norm(secid) for secid in exclude_secid or []}
+        default_assetcode = asset_code or self._common_assetcode(chain.contracts)
+        summaries = self.data_access.list_contract_candle_summaries(
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            timeframe=timeframe,
+            secid_prefix=secid_prefix,
+            include_secid=include_secid,
+        )
+        additions: list[FuturesContract] = []
+        skipped = list(chain.skipped)
+        for summary in summaries:
+            key = _norm(summary.secid)
+            if key in existing or key in excluded:
+                continue
+            expiration_date = _date_from_ts(summary.max_ts)
+            if expiration_date is None:
+                skipped.append(self._skip_from_candle_summary(summary, "missing candle max_ts"))
+                continue
+            additions.append(
+                FuturesContract(
+                    secid=summary.secid,
+                    board=summary.board,
+                    assetcode=default_assetcode,
+                    expiration_date=expiration_date,
+                    last_trade_date=expiration_date,
+                )
+            )
+            existing.add(key)
+
+        if not additions:
+            return chain
+
+        contracts = sorted(
+            [*chain.contracts, *additions],
+            key=lambda contract: (contract.expiration_date, contract.secid, contract.board),
+        )
+        warning = (
+            "augmented "
+            f"{len(additions)} contract(s) from existing candle partitions missing from metadata: "
+            + ", ".join(contract.secid for contract in additions)
+        )
+        return ContractChainResult(
+            contracts=contracts,
+            skipped=skipped,
+            warnings=[*chain.warnings, warning],
+        )
+
+    def _skip_from_candle_summary(self, summary: ContractCandleSummary, reason: str):
+        from continuous_futures_builder.models import SkippedContract
+
+        return SkippedContract(secid=summary.secid, board=summary.board, reason=reason)
+
     def build_chain(
         self,
         exchange: str = "MOEX",
@@ -63,6 +154,7 @@ class ContinuousFuturesBuilder:
         secid_prefix: str | None = None,
         include_secid: list[str] | None = None,
         exclude_secid: list[str] | None = None,
+        timeframe: str = "1d",
     ) -> ContractChainResult:
         metadata = self.data_access.load_metadata_snapshot(
             exchange=exchange,
@@ -70,13 +162,24 @@ class ContinuousFuturesBuilder:
             market=market,
             snapshot_ts=metadata_snapshot_ts,
         )
-        return build_contract_chain(
+        chain = build_contract_chain(
             metadata=metadata,
             query=query,
             asset_code=asset_code,
             secid_prefix=secid_prefix,
             include_secid=include_secid,
             exclude_secid=exclude_secid,
+        )
+        return self._augment_chain_from_candle_catalog(
+            chain,
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            timeframe=timeframe,
+            secid_prefix=secid_prefix,
+            include_secid=include_secid,
+            exclude_secid=exclude_secid,
+            asset_code=asset_code,
         )
 
     def _load_candles(
@@ -107,6 +210,7 @@ class ContinuousFuturesBuilder:
             secid_prefix=config.secid_prefix,
             include_secid=config.include_secid,
             exclude_secid=config.exclude_secid,
+            timeframe=config.timeframe,
         )
         candles_by_contract = self._load_candles(config, chain.contracts)
         roll_calendar = build_fixed_days_roll_calendar(
@@ -114,9 +218,10 @@ class ContinuousFuturesBuilder:
             candles_by_contract=candles_by_contract,
             roll_days_before=config.roll_days_before,
         )
+        active_contracts = chain.contracts[: len(roll_calendar.events) + 1]
         frame = stitch_unadjusted(
             config=config,
-            contracts=chain.contracts,
+            contracts=active_contracts,
             roll_events=roll_calendar.events,
             candles_by_contract=candles_by_contract,
         )
@@ -192,6 +297,6 @@ class ContinuousFuturesBuilder:
             contracts_used=frame.get_column("active_contract")
             .unique(maintain_order=True)
             .to_list(),
-            roll_count=max(len(chain.contracts) - 1, 0),
+            roll_count=int(frame.get_column("roll_flag").sum()),
             warnings=warnings,
         )

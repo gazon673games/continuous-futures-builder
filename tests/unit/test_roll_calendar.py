@@ -79,3 +79,19 @@ def test_roll_error_when_next_contract_has_no_data_after_roll(temp_data_root):
             query="MX",
             roll_days_before=3,
         )
+
+
+def test_roll_calendar_stops_when_current_expiration_is_beyond_available_candles():
+    contracts = [
+        FuturesContract(secid="CRU6", board="RFUD", expiration_date=date(2026, 9, 17)),
+        FuturesContract(secid="CRZ6", board="RFUD", expiration_date=date(2026, 12, 17)),
+    ]
+    candles = {
+        "CRU6": _candles("CRU6", [date(2026, 7, 1), date(2026, 7, 2)]),
+        "CRZ6": _candles("CRZ6", [date(2026, 7, 1), date(2026, 7, 2)]),
+    }
+
+    calendar = build_fixed_days_roll_calendar(contracts, candles, roll_days_before=3)
+
+    assert calendar.events == []
+    assert "not rolling to CRZ6 yet" in calendar.warnings[0]

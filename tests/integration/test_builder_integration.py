@@ -71,3 +71,28 @@ def test_builder_chain_preview_from_fixture(temp_data_root):
 
     assert chain.contract_ids == ["CRH4", "CRM4", "CRU4", "CRZ4"]
     assert any("BADCR" in warning for warning in chain.warnings)
+
+
+def test_builder_augments_chain_from_existing_candle_partitions(temp_data_root):
+    metadata_path = (
+        temp_data_root
+        / "normalized"
+        / "metadata"
+        / "exchange=MOEX"
+        / "engine=futures"
+        / "market=forts"
+        / "securities"
+        / "snapshot_ts=20240101T000000Z"
+        / "part-000.parquet"
+    )
+    metadata = pl.read_parquet(metadata_path).filter(pl.col("secid").is_in(["CRU4", "CRZ4"]))
+    metadata.write_parquet(metadata_path)
+
+    chain = ContinuousFuturesBuilder(temp_data_root).build_chain(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CNY",
+        secid_prefix="CR",
+    )
+
+    assert chain.contract_ids == ["CRH4", "CRM4", "CRU4", "CRZ4"]
+    assert any("augmented 2 contract(s)" in warning for warning in chain.warnings)

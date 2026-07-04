@@ -94,6 +94,24 @@ class CountingDataAccess:
     ) -> list[str]:
         return self.local.list_metadata_snapshots(exchange, engine, market)
 
+    def list_contract_candle_summaries(
+        self,
+        exchange: str,
+        engine: str,
+        market: str,
+        timeframe: str,
+        secid_prefix: str | None = None,
+        include_secid: list[str] | None = None,
+    ):
+        return self.local.list_contract_candle_summaries(
+            exchange,
+            engine,
+            market,
+            timeframe,
+            secid_prefix=secid_prefix,
+            include_secid=include_secid,
+        )
+
 
 def test_data_access_loads_metadata_through_fake_data_store(fixture_root):
     fake = FakeDataStore(fixture_root)
@@ -129,6 +147,20 @@ def test_data_access_lists_snapshots_through_fake_data_store(fixture_root):
     access = OhlcvDataStoreAccess(data_root="unused", data_store=fake)
 
     assert access.list_metadata_snapshots("MOEX", "futures", "forts") == ["20240101T000000Z"]
+
+
+def test_local_data_access_lists_contract_candle_summaries(fixture_root):
+    summaries = LocalParquetDataAccess(fixture_root).list_contract_candle_summaries(
+        "MOEX",
+        "futures",
+        "forts",
+        "1d",
+        secid_prefix="CR",
+    )
+
+    assert [summary.secid for summary in summaries] == ["CRH4", "CRM4", "CRU4", "CRZ4"]
+    assert all(summary.board == "RFUD" for summary in summaries)
+    assert all(summary.row_count > 0 for summary in summaries)
 
 
 def test_builder_uses_data_access_abstraction(fixture_root, tmp_path):

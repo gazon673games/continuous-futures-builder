@@ -9,6 +9,7 @@ import typer
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.exceptions import ContinuousFuturesError
 from continuous_futures_builder.models import ContractChainResult
+from continuous_futures_builder.quality import build_quality_report
 from continuous_futures_builder.storage import ContinuousFuturesStorage
 
 app = typer.Typer(help="Build local derived continuous futures datasets.")
@@ -115,6 +116,7 @@ def chain(
             secid_prefix=secid_prefix,
             include_secid=include_secid,
             exclude_secid=exclude_secid,
+            timeframe=timeframe,
         )
         typer.echo(f"contracts_used: {', '.join(result.contract_ids)}")
         _print_chain_diagnostics(
@@ -201,6 +203,17 @@ def validate(
     typer.echo(f"end_ts: {frame.get_column('ts').max()}")
     if head > 0:
         typer.echo(frame.head(head))
+
+
+@app.command()
+def quality(path: Annotated[Path, typer.Option()]) -> None:
+    try:
+        report = build_quality_report(path)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _print_result(report)
 
 
 if __name__ == "__main__":

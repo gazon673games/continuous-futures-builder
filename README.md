@@ -7,7 +7,9 @@ This project builds derived continuous futures datasets from local normalized da
 ## What It Does
 
 - Reads local normalized futures candles and metadata snapshots.
-- Builds a configurable contract chain from metadata.
+- Builds a configurable contract chain from metadata and, when explicitly
+  filtered by SECID prefix or include list, can augment missing historical
+  metadata from existing candle partitions.
 - Builds a fixed-days-before-expiration roll calendar.
 - Stitches concrete contracts into a continuous series.
 - Preserves `active_contract` and `source_contract_symbol` on every output row.
@@ -87,6 +89,9 @@ roll_id, roll_flag, roll_date, adjustment_mode, adjustment_factor
 ```
 
 `active_contract` and `source_contract_symbol` are non-null on every row so future research or backtests can map the continuous row back to an executable contract.
+The continuous symbol itself is not an executable exchange contract. It is a
+derived research series; `active_contract` tells you which concrete futures
+contract supplied each row.
 
 ## Python API
 
@@ -166,6 +171,11 @@ uv run continuous-futures validate \
   --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
+```bash
+uv run continuous-futures quality \
+  --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
+```
+
 ## Real Local CNY/RUB Workflow
 
 Manual workflow:
@@ -193,7 +203,8 @@ uv run continuous-futures chain \
   --engine futures \
   --market forts \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
-  --query CNY
+  --query CNY \
+  --secid-prefix CR
 ```
 
 The `chain` command prints selected SECIDs plus diagnostics per contract:
@@ -212,15 +223,12 @@ uv run continuous-futures chain \
   --secid-prefix CR
 ```
 
-You can also filter by `--asset-code`, or use a manual `--include-secid` /
-`--exclude-secid` smoke chain when you want to inspect a specific pair. For
-example, with the 20260704T195423Z adapter snapshot, the pure `CR*` CNY family
-is internally consistent but its expirations are still in the future while the
-available candles end at 2026-07-03, so fixed-days-before-expiration rolls
-cannot yet build a full multi-contract CR series. A minimal real smoke chain can
-be built explicitly from `CRU6` into `CNYRUBF`; this mixes asset codes
-(`CNY` and `CNYRUBTOM`) and should be treated as a traceability check, not as a
-final research contract family.
+When a metadata snapshot contains only current/future contracts but normalized
+candle partitions already contain historical SECIDs, `--secid-prefix CR`
+allows the builder to augment missing historical CR contracts from those candle
+partitions. For augmented contracts, expiration and last-trade dates are derived
+from the last available candle timestamp. The CLI prints a warning naming the
+augmented contracts.
 
 Build `CNYRUB_CONT` unadjusted into this repository's `data/derived`:
 
@@ -234,9 +242,8 @@ uv run continuous-futures build \
   --continuous-symbol CNYRUB_CONT \
   --timeframe 1d \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
-  --query NO_MATCH \
-  --include-secid CRU6 \
-  --include-secid CNYRUBF \
+  --query CNY \
+  --secid-prefix CR \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
   --adjustment-mode unadjusted \
@@ -256,9 +263,8 @@ uv run continuous-futures build \
   --continuous-symbol CNYRUB_CONT \
   --timeframe 1d \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
-  --query NO_MATCH \
-  --include-secid CRU6 \
-  --include-secid CNYRUBF \
+  --query CNY \
+  --secid-prefix CR \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
   --adjustment-mode back_adjusted \
@@ -276,11 +282,26 @@ uv run continuous-futures validate \
   --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
+Inspect compact quality reports:
+
+```bash
+uv run continuous-futures quality \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
+
+uv run continuous-futures quality \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
+```
+
+The quality report prints row count, date range, contracts used, roll count,
+roll dates, gap count, duplicate timestamp count, null contract/price counts,
+roll-gap summary for unadjusted output, and adjustment-factor range for
+back-adjusted output. It does not print the full DataFrame.
+
 Automated tests use fixtures only. They do not require `../moex_iss_adapter/data` and do not call MOEX ISS.
 
 ## Roll Rule
 
-`fixed_days_before_expiration` rolls each contract to the next eligible contract on the Nth available trading day before the current contract expiration. Trading days are taken from the current contract candle data. If fewer than N prior trading days exist, the earliest available prior trading day is used and a warning is recorded. If the next contract has no candle data on or after the roll date, building fails.
+`fixed_days_before_expiration` rolls each contract to the next eligible contract on the Nth available trading day before the current contract expiration. Trading days are taken from the current contract candle data. If fewer than N prior trading days exist near expiration, the earliest available prior trading day is used and a warning is recorded. If the current contract expiration is still beyond the available candle history, the builder keeps the current contract active and does not roll into future contracts early. If the next contract has no candle data on or after a real roll date, building fails.
 
 ## Adjustment Modes
 

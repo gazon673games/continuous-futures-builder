@@ -35,6 +35,14 @@ class SkippedContract(BaseModel):
     reason: str
 
 
+class ContractCandleSummary(BaseModel):
+    secid: str
+    board: str
+    row_count: int
+    min_ts: date | datetime | None = None
+    max_ts: date | datetime | None = None
+
+
 class ContractChainResult(BaseModel):
     contracts: list[FuturesContract]
     skipped: list[SkippedContract] = Field(default_factory=list)
@@ -126,4 +134,27 @@ class ContinuousFuturesBuildResult(BaseModel):
     end_ts: date | datetime | None = None
     contracts_used: list[str]
     roll_count: int
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ContinuousFuturesQualityReport(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    path: Path
+    adjustment_mode: str | None
+    row_count: int
+    min_ts: date | datetime | None = None
+    max_ts: date | datetime | None = None
+    contracts_used: list[str] = Field(default_factory=list)
+    contract_count: int
+    roll_count: int
+    roll_dates: list[date | datetime] = Field(default_factory=list)
+    gaps_count: int
+    duplicate_ts_count: int
+    null_active_contract_count: int
+    null_price_count: int
+    max_abs_roll_gap: float | None = None
+    adjustment_factor_min: float | None = None
+    adjustment_factor_max: float | None = None
+    status: str
     warnings: list[str] = Field(default_factory=list)

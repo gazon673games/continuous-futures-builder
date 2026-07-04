@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 
 from continuous_futures_builder.exceptions import RollCalendarError
 from continuous_futures_builder.models import FuturesContract, RollCalendarResult, RollEvent
+
+FUTURE_EXPIRATION_BUFFER_DAYS = 14
 
 
 def _trading_dates(candles: pl.DataFrame, contract: FuturesContract) -> list[date]:
@@ -38,6 +40,10 @@ def _choose_roll_date(
     return prior_dates[0], warning
 
 
+def _available_through(dates: list[date]) -> date:
+    return dates[-1]
+
+
 def build_fixed_days_roll_calendar(
     contracts: list[FuturesContract],
     candles_by_contract: dict[str, pl.DataFrame],
@@ -57,9 +63,20 @@ def build_fixed_days_roll_calendar(
         if next_candles is None:
             raise RollCalendarError(f"Missing candle data for next contract {next_contract.secid}")
 
+        current_dates = _trading_dates(current_candles, current)
+        available_through = _available_through(current_dates)
+        if current.expiration_date - available_through > timedelta(
+            days=max(FUTURE_EXPIRATION_BUFFER_DAYS, roll_days_before * 3)
+        ):
+            warnings.append(
+                f"{current.secid}: available candles end at {available_through} before "
+                f"expiration {current.expiration_date}; not rolling to {next_contract.secid} yet"
+            )
+            break
+
         roll_date, warning = _choose_roll_date(
             current,
-            _trading_dates(current_candles, current),
+            current_dates,
             roll_days_before,
         )
         if warning:

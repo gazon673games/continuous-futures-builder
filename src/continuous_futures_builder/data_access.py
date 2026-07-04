@@ -6,6 +6,7 @@ from typing import Any, Protocol
 import polars as pl
 
 from continuous_futures_builder.exceptions import InputDataError
+from continuous_futures_builder.models import ContractCandleSummary
 from continuous_futures_builder.schemas import (
     validate_candle_schema,
     validate_metadata_schema,
@@ -37,6 +38,16 @@ class ContinuousFuturesDataAccess(Protocol):
         engine: str,
         market: str,
     ) -> list[str]: ...
+
+    def list_contract_candle_summaries(
+        self,
+        exchange: str,
+        engine: str,
+        market: str,
+        timeframe: str,
+        secid_prefix: str | None = None,
+        include_secid: list[str] | None = None,
+    ) -> list[ContractCandleSummary]: ...
 
 
 def _read_parquet_parts(directory: Path, context: str) -> pl.DataFrame:
@@ -137,6 +148,58 @@ class LocalParquetDataAccess:
             if path.is_dir() and path.name.startswith("snapshot_ts=")
         )
 
+    def list_contract_candle_summaries(
+        self,
+        exchange: str,
+        engine: str,
+        market: str,
+        timeframe: str,
+        secid_prefix: str | None = None,
+        include_secid: list[str] | None = None,
+    ) -> list[ContractCandleSummary]:
+        base = (
+            self.data_root
+            / "normalized"
+            / "candles"
+            / f"exchange={exchange}"
+            / f"engine={engine}"
+            / f"market={market}"
+        )
+        if not base.exists():
+            return []
+
+        include = {secid.upper() for secid in include_secid or []}
+        prefix = secid_prefix.upper() if secid_prefix else None
+        summaries: list[ContractCandleSummary] = []
+        for board_path in sorted(base.glob("board=*")):
+            if not board_path.is_dir():
+                continue
+            board = board_path.name.removeprefix("board=")
+            for symbol_path in sorted(board_path.glob("symbol=*")):
+                if not symbol_path.is_dir():
+                    continue
+                secid = symbol_path.name.removeprefix("symbol=")
+                secid_upper = secid.upper()
+                if prefix and not secid_upper.startswith(prefix):
+                    continue
+                if include and secid_upper not in include and prefix is None:
+                    continue
+                timeframe_path = symbol_path / f"timeframe={timeframe}"
+                if not timeframe_path.exists():
+                    continue
+                frame = _read_parquet_parts(timeframe_path, f"candles {secid}")
+                validate_candle_schema(frame, str(timeframe_path))
+                summaries.append(
+                    ContractCandleSummary(
+                        secid=secid,
+                        board=board,
+                        row_count=frame.height,
+                        min_ts=frame.get_column("ts").min(),
+                        max_ts=frame.get_column("ts").max(),
+                    )
+                )
+        return sorted(summaries, key=lambda item: (item.secid, item.board))
+
 
 class OhlcvDataStoreAccess:
     def __init__(
@@ -218,6 +281,24 @@ class OhlcvDataStoreAccess:
             and snapshot.engine == engine
             and snapshot.market == market
             and getattr(snapshot, "kind", "securities") == "securities"
+        )
+
+    def list_contract_candle_summaries(
+        self,
+        exchange: str,
+        engine: str,
+        market: str,
+        timeframe: str,
+        secid_prefix: str | None = None,
+        include_secid: list[str] | None = None,
+    ) -> list[ContractCandleSummary]:
+        return LocalParquetDataAccess(self.data_root).list_contract_candle_summaries(
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            timeframe=timeframe,
+            secid_prefix=secid_prefix,
+            include_secid=include_secid,
         )
 
 

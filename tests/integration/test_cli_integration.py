@@ -102,3 +102,10 @@ def test_cli_chain_build_and_validate(temp_data_root):
     assert validate.exit_code == 0, validate.output
     assert "valid:" in validate.output
     assert "row_count: 14" in validate.output
+
+    quality = runner.invoke(app, ["quality", "--path", str(output_path)])
+
+    assert quality.exit_code == 0, quality.output
+    assert "status: ok" in quality.output
+    assert "contract_count: 4" in quality.output
+    assert "roll_count: 3" in quality.output
