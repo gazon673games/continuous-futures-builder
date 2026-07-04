@@ -45,7 +45,10 @@ def test_cli_chain_build_and_validate(temp_data_root):
     )
     assert chain.exit_code == 0, chain.output
     assert "contracts_used: CRH4, CRM4, CRU4, CRZ4" in chain.output
+    assert "assetcode: CNYRUB" in chain.output
+    assert "row_count: 5" in chain.output
 
+    output_root = temp_data_root.parent / "derived-output"
     build = runner.invoke(
         app,
         [
@@ -74,6 +77,8 @@ def test_cli_chain_build_and_validate(temp_data_root):
             "back_adjusted",
             "--save",
             "--overwrite",
+            "--output-root",
+            str(output_root),
         ],
     )
     assert build.exit_code == 0, build.output
@@ -81,7 +86,7 @@ def test_cli_chain_build_and_validate(temp_data_root):
     assert "roll_count: 3" in build.output
 
     output_path = (
-        temp_data_root
+        output_root
         / "derived"
         / "continuous_futures"
         / "exchange=MOEX"

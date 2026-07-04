@@ -8,6 +8,7 @@ import typer
 
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.exceptions import ContinuousFuturesError
+from continuous_futures_builder.models import ContractChainResult
 from continuous_futures_builder.storage import ContinuousFuturesStorage
 
 app = typer.Typer(help="Build local derived continuous futures datasets.")
@@ -21,6 +22,45 @@ def _print_result(result: object) -> None:
         else:
             rendered = value
         typer.echo(f"{key}: {rendered}")
+
+
+def _print_chain_diagnostics(
+    builder: ContinuousFuturesBuilder,
+    result: ContractChainResult,
+    *,
+    exchange: str,
+    engine: str,
+    market: str,
+    timeframe: str,
+) -> None:
+    typer.echo("contracts:")
+    for contract in result.contracts:
+        candles = builder.data_access.load_contract_candles(
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            board=contract.board,
+            symbol=contract.secid,
+            timeframe=timeframe,
+        )
+        typer.echo(f"- secid: {contract.secid}")
+        typer.echo(f"  board: {contract.board}")
+        typer.echo(f"  assetcode: {contract.assetcode}")
+        typer.echo(f"  expiration_date: {contract.expiration_date}")
+        typer.echo(f"  last_trade_date: {contract.last_trade_date}")
+        typer.echo(f"  row_count: {candles.height}")
+        typer.echo(f"  min_ts: {candles.get_column('ts').min()}")
+        typer.echo(f"  max_ts: {candles.get_column('ts').max()}")
+
+    typer.echo("skipped_contracts:")
+    if result.skipped:
+        for skipped in result.skipped:
+            label = skipped.secid or "<unknown>"
+            if skipped.board:
+                label = f"{label}@{skipped.board}"
+            typer.echo(f"- {label}: {skipped.reason}")
+    else:
+        typer.echo("- none")
 
 
 @app.command()
@@ -61,6 +101,7 @@ def chain(
     secid_prefix: Annotated[str | None, typer.Option()] = None,
     include_secid: Annotated[list[str] | None, typer.Option()] = None,
     exclude_secid: Annotated[list[str] | None, typer.Option()] = None,
+    timeframe: Annotated[str, typer.Option()] = "1d",
 ) -> None:
     try:
         builder = ContinuousFuturesBuilder(data_root)
@@ -75,13 +116,20 @@ def chain(
             include_secid=include_secid,
             exclude_secid=exclude_secid,
         )
+        typer.echo(f"contracts_used: {', '.join(result.contract_ids)}")
+        _print_chain_diagnostics(
+            builder,
+            result,
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            timeframe=timeframe,
+        )
+        if result.warnings:
+            typer.echo(f"warnings: {'; '.join(result.warnings)}")
     except ContinuousFuturesError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(1) from exc
-
-    typer.echo(f"contracts_used: {', '.join(result.contract_ids)}")
-    if result.warnings:
-        typer.echo(f"warnings: {'; '.join(result.warnings)}")
 
 
 @app.command()
@@ -103,6 +151,7 @@ def build(
     adjustment_mode: Annotated[str, typer.Option()] = "unadjusted",
     save: Annotated[bool, typer.Option()] = False,
     overwrite: Annotated[bool, typer.Option()] = False,
+    output_root: Annotated[Path | None, typer.Option()] = None,
     head: Annotated[int, typer.Option()] = 0,
 ) -> None:
     try:
@@ -124,6 +173,7 @@ def build(
             adjustment_mode=adjustment_mode,
             save=save,
             overwrite=overwrite,
+            output_root=output_root,
         )
     except ContinuousFuturesError as exc:
         typer.echo(f"error: {exc}", err=True)

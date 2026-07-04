@@ -45,6 +45,24 @@ def test_build_unadjusted_and_back_adjusted_from_fixtures(temp_data_root):
     assert closes[date(2024, 3, 11)] == closes[date(2024, 3, 12)]
 
 
+def test_builder_can_write_to_separate_output_root(temp_data_root, tmp_path):
+    output_root = tmp_path / "derived-output"
+    builder = ContinuousFuturesBuilder(temp_data_root, output_root=output_root)
+
+    result = builder.build(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CR",
+        adjustment_mode="unadjusted",
+        save=True,
+        overwrite=True,
+    )
+
+    assert result.output_path is not None
+    assert output_root in result.output_path.parents
+    assert result.output_path.exists()
+    ContinuousFuturesStorage(output_root).validate_path(result.output_path)
+
+
 def test_builder_chain_preview_from_fixture(temp_data_root):
     chain = ContinuousFuturesBuilder(temp_data_root).build_chain(
         metadata_snapshot_ts="20240101T000000Z",

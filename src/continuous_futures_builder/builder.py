@@ -28,15 +28,17 @@ class ContinuousFuturesBuilder:
         self,
         data_root: str | Path,
         *,
+        output_root: str | Path | None = None,
         data_access: ContinuousFuturesDataAccess | None = None,
         allow_local_fallback: bool = True,
     ) -> None:
         self.data_root = Path(data_root)
+        self.output_root = Path(output_root) if output_root is not None else self.data_root
         self.data_access = data_access or create_data_access(
             self.data_root,
             allow_local_fallback=allow_local_fallback,
         )
-        self.storage = ContinuousFuturesStorage(self.data_root)
+        self.storage = ContinuousFuturesStorage(self.output_root)
 
     def list_metadata_snapshots(
         self,
@@ -146,9 +148,12 @@ class ContinuousFuturesBuilder:
         adjustment_mode: str = "unadjusted",
         save: bool = False,
         overwrite: bool = False,
+        output_root: str | Path | None = None,
     ) -> ContinuousFuturesBuildResult:
+        effective_output_root = Path(output_root) if output_root is not None else self.output_root
         config = ContinuousFuturesBuildConfig(
             data_root=self.data_root,
+            output_root=effective_output_root,
             exchange=exchange,
             engine=engine,
             market=market,
@@ -168,7 +173,8 @@ class ContinuousFuturesBuilder:
 
         output_path: Path | None = None
         if save:
-            output_path = self.storage.output_path(
+            storage = ContinuousFuturesStorage(effective_output_root)
+            output_path = storage.output_path(
                 exchange=config.exchange,
                 engine=config.engine,
                 market=config.market,
@@ -176,7 +182,7 @@ class ContinuousFuturesBuilder:
                 timeframe=config.timeframe,
                 adjustment_mode=config.adjustment_mode,
             )
-            self.storage.write(frame, output_path, overwrite=overwrite)
+            storage.write(frame, output_path, overwrite=overwrite)
 
         return ContinuousFuturesBuildResult(
             output_path=output_path,

@@ -68,6 +68,13 @@ derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_
 
 The writer refuses to write into `normalized/candles`.
 
+When input data lives in a sibling adapter directory, pass `--output-root data`
+to keep derived output inside this repository:
+
+```text
+data/derived/continuous_futures/...
+```
+
 ## Output Schema
 
 Required output columns:
@@ -189,23 +196,84 @@ uv run continuous-futures chain \
   --query CNY
 ```
 
-Build `CNYRUB_CONT` from real local data:
+The `chain` command prints selected SECIDs plus diagnostics per contract:
+`assetcode`, expiration dates, candle row count, and min/max timestamps. If
+`--query CNY` mixes contract families such as `CR*`, `MY*`, `UC*`, and
+`CNYRUBF`, narrow it before building:
+
+```bash
+uv run continuous-futures chain \
+  --data-root ../moex_iss_adapter/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --metadata-snapshot-ts <SNAPSHOT_TS> \
+  --query CNY \
+  --secid-prefix CR
+```
+
+You can also filter by `--asset-code`, or use a manual `--include-secid` /
+`--exclude-secid` smoke chain when you want to inspect a specific pair. For
+example, with the 20260704T195423Z adapter snapshot, the pure `CR*` CNY family
+is internally consistent but its expirations are still in the future while the
+available candles end at 2026-07-03, so fixed-days-before-expiration rolls
+cannot yet build a full multi-contract CR series. A minimal real smoke chain can
+be built explicitly from `CRU6` into `CNYRUBF`; this mixes asset codes
+(`CNY` and `CNYRUBTOM`) and should be treated as a traceability check, not as a
+final research contract family.
+
+Build `CNYRUB_CONT` unadjusted into this repository's `data/derived`:
 
 ```bash
 uv run continuous-futures build \
   --data-root ../moex_iss_adapter/data \
+  --output-root data \
   --exchange MOEX \
   --engine futures \
   --market forts \
   --continuous-symbol CNYRUB_CONT \
   --timeframe 1d \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
-  --query CNY \
+  --query NO_MATCH \
+  --include-secid CRU6 \
+  --include-secid CNYRUBF \
+  --roll-rule fixed_days_before_expiration \
+  --roll-days-before 3 \
+  --adjustment-mode unadjusted \
+  --save \
+  --overwrite
+```
+
+Build the back-adjusted variant separately:
+
+```bash
+uv run continuous-futures build \
+  --data-root ../moex_iss_adapter/data \
+  --output-root data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --continuous-symbol CNYRUB_CONT \
+  --timeframe 1d \
+  --metadata-snapshot-ts <SNAPSHOT_TS> \
+  --query NO_MATCH \
+  --include-secid CRU6 \
+  --include-secid CNYRUBF \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
   --adjustment-mode back_adjusted \
   --save \
   --overwrite
+```
+
+Validate both outputs:
+
+```bash
+uv run continuous-futures validate \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
+
+uv run continuous-futures validate \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
 Automated tests use fixtures only. They do not require `../moex_iss_adapter/data` and do not call MOEX ISS.

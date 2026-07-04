@@ -63,6 +63,7 @@ class ContinuousFuturesBuildConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     data_root: Path
+    output_root: Path | None = None
     exchange: str = DEFAULT_EXCHANGE
     engine: str = DEFAULT_ENGINE
     market: str = DEFAULT_MARKET
@@ -81,6 +82,13 @@ class ContinuousFuturesBuildConfig(BaseModel):
     @field_validator("data_root", mode="before")
     @classmethod
     def _coerce_path(cls, value: str | Path) -> Path:
+        return Path(value)
+
+    @field_validator("output_root", mode="before")
+    @classmethod
+    def _coerce_optional_path(cls, value: str | Path | None) -> Path | None:
+        if value is None:
+            return None
         return Path(value)
 
     @field_validator("roll_rule")
