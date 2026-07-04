@@ -7,8 +7,8 @@ import pytest
 
 from continuous_futures_builder.contract_chain import build_contract_chain
 from continuous_futures_builder.contract_filters import filter_contracts
+from continuous_futures_builder.data_access import LocalParquetDataAccess
 from continuous_futures_builder.exceptions import ContractChainError
-from continuous_futures_builder.storage import LocalDataStore
 
 
 def _metadata(rows: list[dict]) -> pl.DataFrame:
@@ -31,7 +31,7 @@ def _metadata(rows: list[dict]) -> pl.DataFrame:
 
 
 def test_contract_filtering_by_query(fixture_root):
-    metadata = LocalDataStore(fixture_root).read_metadata_snapshot(
+    metadata = LocalParquetDataAccess(fixture_root).load_metadata_snapshot(
         "MOEX", "futures", "forts", "20240101T000000Z"
     )
 
@@ -42,7 +42,7 @@ def test_contract_filtering_by_query(fixture_root):
 
 
 def test_contract_filtering_by_asset_code_and_prefix(fixture_root):
-    metadata = LocalDataStore(fixture_root).read_metadata_snapshot(
+    metadata = LocalParquetDataAccess(fixture_root).load_metadata_snapshot(
         "MOEX", "futures", "forts", "20240101T000000Z"
     )
 
@@ -54,7 +54,7 @@ def test_contract_filtering_by_asset_code_and_prefix(fixture_root):
 
 
 def test_include_and_exclude_secid(fixture_root):
-    metadata = LocalDataStore(fixture_root).read_metadata_snapshot(
+    metadata = LocalParquetDataAccess(fixture_root).load_metadata_snapshot(
         "MOEX", "futures", "forts", "20240101T000000Z"
     )
 

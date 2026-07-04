@@ -8,6 +8,23 @@ from continuous_futures_builder.cli import app
 def test_cli_chain_build_and_validate(temp_data_root):
     runner = CliRunner()
 
+    snapshots = runner.invoke(
+        app,
+        [
+            "snapshots",
+            "--data-root",
+            str(temp_data_root),
+            "--exchange",
+            "MOEX",
+            "--engine",
+            "futures",
+            "--market",
+            "forts",
+        ],
+    )
+    assert snapshots.exit_code == 0, snapshots.output
+    assert "20240101T000000Z" in snapshots.output
+
     chain = runner.invoke(
         app,
         [

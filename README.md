@@ -24,7 +24,23 @@ This project builds derived continuous futures datasets from local normalized da
 
 `moex_iss_adapter` is responsible for downloading and normalizing concrete contract data. This project only reads already-normalized local data.
 
-`ohlcv-data-store` is the intended stable read layer. The MVP includes a small local normalized-layout reader for deterministic fixtures and file-based use; integration with the public `ohlcv_data_store` API can be added without changing the continuous futures logic.
+`ohlcv-data-store` is the intended stable read layer. Production reads prefer the public `ohlcv_data_store.DataStore` API when it is installed. The small local normalized-layout reader remains only as a fallback for deterministic fixtures and simple local use.
+
+## Setup
+
+Basic development setup:
+
+```bash
+uv sync
+```
+
+Install the sibling data-store package editably into the current environment:
+
+```bash
+uv pip install -e ../data_store
+```
+
+If `ohlcv_data_store` is not installed, the builder uses the local fallback reader by default. To require the public data-store API, construct `ContinuousFuturesBuilder(..., allow_local_fallback=False)`.
 
 ## Input Layout
 
@@ -101,6 +117,16 @@ chain = builder.build_chain(
 
 ## CLI
 
+List available futures metadata snapshots:
+
+```bash
+uv run continuous-futures snapshots \
+  --data-root tests/fixtures/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts
+```
+
 ```bash
 uv run continuous-futures chain \
   --data-root tests/fixtures/data \
@@ -132,6 +158,57 @@ uv run continuous-futures build \
 uv run continuous-futures validate \
   --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
+
+## Real Local CNY/RUB Workflow
+
+Manual workflow:
+
+1. Use `moex_iss_adapter` to download futures metadata and concrete futures candles.
+2. Use `ohlcv-data-store` to validate the local adapter output.
+3. Use `continuous-futures-builder` to build the derived continuous series.
+
+Find metadata snapshots in real local adapter output:
+
+```bash
+uv run continuous-futures snapshots \
+  --data-root ../moex_iss_adapter/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts
+```
+
+Preview the CNY/RUB-like chain:
+
+```bash
+uv run continuous-futures chain \
+  --data-root ../moex_iss_adapter/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --metadata-snapshot-ts <SNAPSHOT_TS> \
+  --query CNY
+```
+
+Build `CNYRUB_CONT` from real local data:
+
+```bash
+uv run continuous-futures build \
+  --data-root ../moex_iss_adapter/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --continuous-symbol CNYRUB_CONT \
+  --timeframe 1d \
+  --metadata-snapshot-ts <SNAPSHOT_TS> \
+  --query CNY \
+  --roll-rule fixed_days_before_expiration \
+  --roll-days-before 3 \
+  --adjustment-mode back_adjusted \
+  --save \
+  --overwrite
+```
+
+Automated tests use fixtures only. They do not require `../moex_iss_adapter/data` and do not call MOEX ISS.
 
 ## Roll Rule
 
@@ -165,4 +242,4 @@ All tests use tiny local deterministic fixtures under `tests/fixtures/data`.
 - MVP supports only the fixed-days-before-expiration roll rule.
 - MVP supports additive back-adjustment only.
 - Volume/open-interest-based rolls are intentionally not implemented.
-- The local reader follows the normalized fixture layout; full `ohlcv_data_store` integration is expected later.
+- The data-store integration uses the current public `ohlcv_data_store.DataStore` API. If that API changes, only `data_access.py` should need updates.

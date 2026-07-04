@@ -7,6 +7,10 @@ import polars as pl
 from continuous_futures_builder.adjustments import apply_additive_back_adjustment
 from continuous_futures_builder.constants import ADJUSTMENT_BACK_ADJUSTED
 from continuous_futures_builder.contract_chain import build_contract_chain
+from continuous_futures_builder.data_access import (
+    ContinuousFuturesDataAccess,
+    create_data_access,
+)
 from continuous_futures_builder.models import (
     ContinuousFuturesBuildConfig,
     ContinuousFuturesBuildResult,
@@ -16,14 +20,35 @@ from continuous_futures_builder.models import (
 from continuous_futures_builder.roll_calendar import build_fixed_days_roll_calendar
 from continuous_futures_builder.schemas import validate_continuous_schema
 from continuous_futures_builder.stitcher import stitch_unadjusted
-from continuous_futures_builder.storage import ContinuousFuturesStorage, LocalDataStore
+from continuous_futures_builder.storage import ContinuousFuturesStorage
 
 
 class ContinuousFuturesBuilder:
-    def __init__(self, data_root: str | Path) -> None:
+    def __init__(
+        self,
+        data_root: str | Path,
+        *,
+        data_access: ContinuousFuturesDataAccess | None = None,
+        allow_local_fallback: bool = True,
+    ) -> None:
         self.data_root = Path(data_root)
-        self.data_store = LocalDataStore(self.data_root)
+        self.data_access = data_access or create_data_access(
+            self.data_root,
+            allow_local_fallback=allow_local_fallback,
+        )
         self.storage = ContinuousFuturesStorage(self.data_root)
+
+    def list_metadata_snapshots(
+        self,
+        exchange: str = "MOEX",
+        engine: str = "futures",
+        market: str = "forts",
+    ) -> list[str]:
+        return self.data_access.list_metadata_snapshots(
+            exchange=exchange,
+            engine=engine,
+            market=market,
+        )
 
     def build_chain(
         self,
@@ -37,11 +62,11 @@ class ContinuousFuturesBuilder:
         include_secid: list[str] | None = None,
         exclude_secid: list[str] | None = None,
     ) -> ContractChainResult:
-        metadata = self.data_store.read_metadata_snapshot(
+        metadata = self.data_access.load_metadata_snapshot(
             exchange=exchange,
             engine=engine,
             market=market,
-            metadata_snapshot_ts=metadata_snapshot_ts,
+            snapshot_ts=metadata_snapshot_ts,
         )
         return build_contract_chain(
             metadata=metadata,
@@ -56,7 +81,7 @@ class ContinuousFuturesBuilder:
         self, config: ContinuousFuturesBuildConfig, contracts: list[FuturesContract]
     ) -> dict[str, pl.DataFrame]:
         return {
-            contract.secid: self.data_store.read_contract_candles(
+            contract.secid: self.data_access.load_contract_candles(
                 exchange=config.exchange,
                 engine=config.engine,
                 market=config.market,

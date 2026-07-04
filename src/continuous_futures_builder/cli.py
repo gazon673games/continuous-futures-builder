@@ -24,6 +24,32 @@ def _print_result(result: object) -> None:
 
 
 @app.command()
+def snapshots(
+    data_root: Annotated[Path, typer.Option()],
+    exchange: Annotated[str, typer.Option()] = "MOEX",
+    engine: Annotated[str, typer.Option()] = "futures",
+    market: Annotated[str, typer.Option()] = "forts",
+) -> None:
+    try:
+        builder = ContinuousFuturesBuilder(data_root)
+        snapshot_ts_values = builder.list_metadata_snapshots(
+            exchange=exchange,
+            engine=engine,
+            market=market,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if not snapshot_ts_values:
+        typer.echo("snapshots:")
+        return
+    typer.echo("snapshots:")
+    for snapshot_ts in snapshot_ts_values:
+        typer.echo(snapshot_ts)
+
+
+@app.command()
 def chain(
     data_root: Annotated[Path, typer.Option()],
     metadata_snapshot_ts: Annotated[str, typer.Option()],
