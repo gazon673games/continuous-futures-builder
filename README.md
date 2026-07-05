@@ -396,6 +396,44 @@ and `candidate_contracts.csv`. The structural-gap flags in this report are
 diagnostic only and do not alter the built Parquet. See
 `docs/architecture/roll_outlier_investigation.md`.
 
+## USD/RUB Control Series
+
+`USDRUB_CONT` is a control continuous series built from concrete `Si*` futures
+already downloaded by `moex_iss_adapter`. It checks whether the same builder
+pipeline can produce a dense, long history for a historically liquid family.
+The control does not add USD/RUB-specific code; it uses the same generic
+metadata snapshot, query, SECID-prefix, roll rule, and adjustment-mode options.
+
+```bash
+uv run continuous-futures build \
+  --data-root ../moex_iss_adapter/data \
+  --output-root data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --continuous-symbol USDRUB_CONT \
+  --timeframe 1d \
+  --metadata-snapshot-ts 20260705T093425Z \
+  --query Si \
+  --secid-prefix Si \
+  --roll-rule fixed_days_before_expiration \
+  --roll-days-before 3 \
+  --adjustment-mode unadjusted \
+  --save \
+  --overwrite
+```
+
+Build the back-adjusted variant by changing `--adjustment-mode` to
+`back_adjusted`.
+
+The `Si*` control built from the 20260705T093425Z adapter snapshot produced a
+valid 2015-01-05 to 2026-07-03 series with no family transition and no CNY-like
+2020-2022 structural source gap. In the same local dataset,
+`CNYRUB_CONT_LONG` has a 734-day source coverage gap at `CYH0 -> CYM2`, while
+the largest `USDRUB_CONT` roll source coverage gap is only 5 calendar days.
+This supports treating the CNY/RUB issue as instrument/data-family specific
+rather than a broad adapter or builder pipeline failure.
+
 Family transitions are generic. The builder compares inferred SECID prefixes
 or the explicit user-provided prefixes and reports transitions such as
 `CYM2 -> CRM2` without treating `CY` or `CR` specially. A large transition gap
