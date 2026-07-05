@@ -23,6 +23,8 @@ def test_quality_report_counts_contracts_and_rolls(temp_data_root):
     assert report.contract_count == 4
     assert report.roll_count == 3
     assert report.max_abs_roll_gap is not None
+    assert report.max_abs_roll_gap_roll_date == report.roll_dates[1]
+    assert report.max_abs_roll_gap_contracts == ["CRM4", "CRU4"]
 
 
 def test_quality_report_includes_family_transitions(multi_prefix_data_root):
@@ -43,6 +45,7 @@ def test_quality_report_includes_family_transitions(multi_prefix_data_root):
     assert report.prefixes_used == ["CY", "CR"]
     assert report.families_used == ["CY", "CR"]
     assert report.family_transition_count == 1
+    assert report.max_abs_roll_gap_roll_date is not None
     assert report.family_transitions[0].from_contract == "CYM3"
     assert report.family_transitions[0].to_contract == "CRH4"
     assert report.max_abs_family_transition_gap == 4.0

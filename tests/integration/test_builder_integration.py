@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from datetime import date
 
 import polars as pl
@@ -133,3 +134,47 @@ def test_builder_augments_chain_from_existing_candle_partitions(temp_data_root):
 
     assert chain.contract_ids == ["CRH4", "CRM4", "CRU4", "CRZ4"]
     assert any("augmented 2 contract(s)" in warning for warning in chain.warnings)
+
+
+def test_build_result_includes_pruning_diagnostics(temp_data_root):
+    metadata_path = (
+        temp_data_root
+        / "normalized"
+        / "metadata"
+        / "exchange=MOEX"
+        / "engine=futures"
+        / "market=forts"
+        / "securities"
+        / "snapshot_ts=20240101T000000Z"
+        / "part-000.parquet"
+    )
+    metadata = pl.read_parquet(metadata_path)
+    duplicate = metadata.filter(pl.col("secid") == "CRM4").with_columns(
+        pl.lit("CRM4A").alias("secid")
+    )
+    pl.concat([metadata, duplicate], how="vertical").write_parquet(metadata_path)
+
+    source = (
+        temp_data_root
+        / "normalized"
+        / "candles"
+        / "exchange=MOEX"
+        / "engine=futures"
+        / "market=forts"
+        / "board=RFUD"
+        / "symbol=CRM4"
+        / "timeframe=1d"
+    )
+    target = source.parent.parent / "symbol=CRM4A" / "timeframe=1d"
+    shutil.copytree(source, target)
+
+    result = ContinuousFuturesBuilder(temp_data_root).build(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CR",
+        adjustment_mode="unadjusted",
+    )
+
+    assert result.contracts_in_chain == 5
+    assert result.contracts_pruned == 1
+    assert result.pruned_contracts == ["CRM4A"]
+    assert any("duplicate expiration_date" in reason for reason in result.pruning_reasons)

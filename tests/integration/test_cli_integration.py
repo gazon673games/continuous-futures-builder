@@ -109,6 +109,13 @@ def test_cli_chain_build_and_validate(temp_data_root):
     assert "status: ok" in quality.output
     assert "contract_count: 4" in quality.output
     assert "roll_count: 3" in quality.output
+    assert "max_abs_roll_gap_roll_date:" in quality.output
+
+    roll_report = runner.invoke(app, ["roll-report", "--path", str(output_path), "--top", "2"])
+
+    assert roll_report.exit_code == 0, roll_report.output
+    assert "roll_date | from_contract | to_contract" in roll_report.output
+    assert "CRH4 | CRM4" in roll_report.output
 
 
 def test_cli_accepts_repeated_secid_prefix(multi_prefix_data_root):

@@ -67,6 +67,41 @@ class ContractFamilyTransition(BaseModel):
     warning: str | None = None
 
 
+class PrunedContract(BaseModel):
+    secid: str | None = None
+    board: str | None = None
+    category: str
+    reason: str
+    start: date | None = None
+    end: date | None = None
+
+
+class RollReportRow(BaseModel):
+    roll_id: str | None = None
+    roll_date: date | datetime | None = None
+    from_contract: str
+    to_contract: str
+    from_prefix: str
+    to_prefix: str
+    is_family_transition: bool
+    old_close: float | None = None
+    new_close: float | None = None
+    roll_gap: float | None = None
+    roll_gap_pct: float | None = None
+    adjustment_factor_before: float | None = None
+    adjustment_factor_after: float | None = None
+    rows_before_roll: int | None = None
+    rows_after_roll: int | None = None
+    warning: str | None = None
+
+
+class RollReportSaveResult(BaseModel):
+    output_dir: Path
+    roll_report_parquet: Path
+    roll_report_csv: Path
+    quality_summary_json: Path
+
+
 class RollEvent(BaseModel):
     roll_id: str
     from_contract: str
@@ -147,7 +182,12 @@ class ContinuousFuturesBuildResult(BaseModel):
     row_count: int
     start_ts: date | datetime | None = None
     end_ts: date | datetime | None = None
+    contracts_in_chain: int = 0
     contracts_used: list[str]
+    contracts_pruned: int = 0
+    pruned_contracts: list[str] = Field(default_factory=list)
+    pruning_reasons: list[str] = Field(default_factory=list)
+    empty_active_segments: list[str] = Field(default_factory=list)
     roll_count: int
     prefixes_used: list[str] = Field(default_factory=list)
     families_used: list[str] = Field(default_factory=list)
@@ -161,6 +201,7 @@ class ContinuousFuturesQualityReport(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     path: Path
+    continuous_symbol: str | None = None
     adjustment_mode: str | None
     row_count: int
     min_ts: date | datetime | None = None
@@ -178,6 +219,8 @@ class ContinuousFuturesQualityReport(BaseModel):
     null_active_contract_count: int
     null_price_count: int
     max_abs_roll_gap: float | None = None
+    max_abs_roll_gap_roll_date: date | datetime | None = None
+    max_abs_roll_gap_contracts: list[str] = Field(default_factory=list)
     max_abs_family_transition_gap: float | None = None
     adjustment_factor_min: float | None = None
     adjustment_factor_max: float | None = None

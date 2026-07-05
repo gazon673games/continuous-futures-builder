@@ -23,6 +23,7 @@ from continuous_futures_builder.models import (
     ContractChainResult,
     ContractFamilyTransition,
     FuturesContract,
+    PrunedContract,
 )
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.rollability import (
@@ -218,6 +219,7 @@ class ContinuousFuturesBuilder:
         ContractChainResult,
         list[str],
         list[ContractFamilyTransition],
+        list[PrunedContract],
     ]:
         prefixes = normalize_secid_prefixes(
             secid_prefix=config.secid_prefix,
@@ -236,11 +238,11 @@ class ContinuousFuturesBuilder:
             timeframe=config.timeframe,
         )
         candles_by_contract = self._load_candles(config, chain.contracts)
-        rollable_contracts, rollability_warnings = filter_rollable_contracts(
+        rollable_contracts, rollability_warnings, rollability_pruned = filter_rollable_contracts(
             chain.contracts,
             candles_by_contract,
         )
-        roll_calendar, active_contracts, segment_warnings = (
+        roll_calendar, active_contracts, segment_warnings, segment_pruned = (
             build_roll_calendar_with_non_empty_segments(
                 contracts=rollable_contracts,
                 candles_by_contract=candles_by_contract,
@@ -271,7 +273,7 @@ class ContinuousFuturesBuilder:
             *segment_warnings,
             *roll_calendar.warnings,
         ]
-        return frame, chain, warnings, family_transitions
+        return frame, chain, warnings, family_transitions, [*rollability_pruned, *segment_pruned]
 
     def build(
         self,
@@ -317,7 +319,7 @@ class ContinuousFuturesBuilder:
             roll_days_before=roll_days_before,
             adjustment_mode=adjustment_mode,
         )
-        frame, _chain, warnings, family_transitions = self._build_frame(config)
+        frame, chain, warnings, family_transitions, pruned_contracts = self._build_frame(config)
 
         output_path: Path | None = None
         if save:
@@ -333,6 +335,23 @@ class ContinuousFuturesBuilder:
             storage.write(frame, output_path, overwrite=overwrite)
 
         contracts_used = frame.get_column("active_contract").unique(maintain_order=True).to_list()
+        used_contracts = {_norm(contract) for contract in contracts_used}
+        pruned_keys = {_norm(contract.secid) for contract in pruned_contracts if contract.secid}
+        inactive_contracts = [
+            PrunedContract(
+                secid=contract.secid,
+                board=contract.board,
+                category="inactive_future_contract",
+                reason=(
+                    f"{contract.secid}: not active in output because no roll into contract "
+                    "occurred within available candle history"
+                ),
+            )
+            for contract in chain.contracts
+            if _norm(contract.secid) not in used_contracts
+            and _norm(contract.secid) not in pruned_keys
+        ]
+        all_pruned_contracts = [*pruned_contracts, *inactive_contracts]
         prefixes_used = []
         for contract in contracts_used:
             prefix = infer_contract_prefix(contract, prefixes)
@@ -344,7 +363,16 @@ class ContinuousFuturesBuilder:
             row_count=frame.height,
             start_ts=frame.get_column("ts").min(),
             end_ts=frame.get_column("ts").max(),
+            contracts_in_chain=len(chain.contracts),
             contracts_used=contracts_used,
+            contracts_pruned=len(all_pruned_contracts),
+            pruned_contracts=[contract.secid or "<unknown>" for contract in all_pruned_contracts],
+            pruning_reasons=[contract.reason for contract in all_pruned_contracts],
+            empty_active_segments=[
+                contract.secid or "<unknown>"
+                for contract in all_pruned_contracts
+                if contract.category == "empty_active_segment"
+            ],
             roll_count=int(frame.get_column("roll_flag").sum()),
             prefixes_used=prefixes_used,
             families_used=prefixes_used,

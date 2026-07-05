@@ -17,6 +17,9 @@ This project builds derived continuous futures datasets from local normalized da
 - Preserves `active_contract` and `source_contract_symbol` on every output row.
 - Reports family/prefix transitions and roll gaps so family changes stay
   visible in research outputs.
+- Reports sparse-contract pruning explicitly in build output.
+- Produces compact quality and roll diagnostics without printing full
+  DataFrames.
 - Writes derived Parquet under `data_root/derived/continuous_futures/...`.
 
 ## What It Does Not Do
@@ -184,6 +187,12 @@ uv run continuous-futures quality \
   --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
+```bash
+uv run continuous-futures roll-report \
+  --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet \
+  --top 10
+```
+
 ## Real Local CNY/RUB Workflow
 
 Manual workflow:
@@ -326,15 +335,67 @@ uv run continuous-futures quality \
 The quality report prints row count, date range, contracts used, roll count,
 roll dates, gap count, duplicate timestamp count, null contract/price counts,
 families/prefixes used, family transition count and diagnostics, roll-gap
-summary for unadjusted output, family-transition gap summary, and
-adjustment-factor range for back-adjusted output. It does not print the full
-DataFrame.
+summary with the roll date/contracts responsible for the maximum absolute gap,
+family-transition gap summary, and adjustment-factor range for back-adjusted
+output. It does not print the full DataFrame.
+
+Detailed roll diagnostics:
+
+```bash
+uv run continuous-futures roll-report \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
+```
+
+Top roll gaps:
+
+```bash
+uv run continuous-futures roll-report \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --top 10
+```
+
+Family transitions only:
+
+```bash
+uv run continuous-futures roll-report \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --family-transitions-only
+```
+
+Save diagnostics for manual and programmatic review:
+
+```bash
+uv run continuous-futures roll-report \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --save \
+  --output-dir data/reports/continuous_futures/CNYRUB_CONT_LONG/unadjusted
+```
+
+This writes `roll_report.parquet`, `roll_report.csv`, and
+`quality_summary.json`. Reports under `data/` are generated artifacts and should
+not be committed.
 
 Family transitions are generic. The builder compares inferred SECID prefixes
 or the explicit user-provided prefixes and reports transitions such as
 `CYM2 -> CRM2` without treating `CY` or `CR` specially. A large transition gap
 is surfaced as a diagnostic warning, but the transition is not automatically
 forbidden.
+
+Large roll gaps are not automatically errors. They may reflect a real family
+transition, sparse historical data, different liquidity, or a roll date where
+the next contract's available close is far from the previous active close. They
+must be inspected with `roll-report --top`.
+
+For `back_adjusted`, a large cumulative `adjustment_factor` can be expected when
+many additive roll gaps are accumulated backward through history. It should be
+reviewed against the roll report, especially around family transitions.
+
+Sparse-contract pruning is documented in
+`docs/architecture/sparse_contract_policy.md`. Build output includes
+`contracts_in_chain`, `contracts_used`, `contracts_pruned`, `pruned_contracts`,
+`pruning_reasons`, and `empty_active_segments`. The pruning policy is currently
+not configurable; this keeps output semantics stable until a separate threshold
+policy is accepted.
 
 Automated tests use fixtures only. They do not require `../moex_iss_adapter/data` and do not call MOEX ISS.
 

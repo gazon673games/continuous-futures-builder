@@ -11,6 +11,11 @@ from continuous_futures_builder.exceptions import ContinuousFuturesError
 from continuous_futures_builder.models import ContractChainResult
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.quality import build_quality_report
+from continuous_futures_builder.roll_report import (
+    build_roll_report,
+    filter_roll_report,
+    save_roll_diagnostics,
+)
 from continuous_futures_builder.storage import ContinuousFuturesStorage
 
 app = typer.Typer(help="Build local derived continuous futures datasets.")
@@ -24,6 +29,30 @@ def _print_result(result: object) -> None:
         else:
             rendered = value
         typer.echo(f"{key}: {rendered}")
+
+
+def _print_roll_rows(rows: list[object]) -> None:
+    typer.echo(
+        "roll_date | from_contract | to_contract | roll_gap | roll_gap_pct | "
+        "is_family_transition | warning"
+    )
+    if not rows:
+        typer.echo("none")
+        return
+    for row in rows:
+        typer.echo(
+            " | ".join(
+                (
+                    str(row.roll_date or ""),
+                    row.from_contract,
+                    row.to_contract,
+                    "" if row.roll_gap is None else f"{row.roll_gap:.6g}",
+                    "" if row.roll_gap_pct is None else f"{row.roll_gap_pct:.4f}",
+                    str(row.is_family_transition),
+                    row.warning or "",
+                )
+            )
+        )
 
 
 def _print_chain_diagnostics(
@@ -243,6 +272,33 @@ def quality(path: Annotated[Path, typer.Option()]) -> None:
         raise typer.Exit(1) from exc
 
     _print_result(report)
+
+
+@app.command("roll-report")
+def roll_report(
+    path: Annotated[Path, typer.Option()],
+    top: Annotated[int | None, typer.Option(min=1)] = None,
+    family_transitions_only: Annotated[bool, typer.Option()] = False,
+    save: Annotated[bool, typer.Option()] = False,
+    output_dir: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    try:
+        rows = build_roll_report(path)
+        selected = filter_roll_report(
+            rows,
+            top=top,
+            family_transitions_only=family_transitions_only,
+        )
+        _print_roll_rows(selected)
+        if save:
+            if output_dir is None:
+                msg = "--output-dir is required when --save is passed"
+                raise ContinuousFuturesError(msg)
+            save_result = save_roll_diagnostics(path, output_dir)
+            _print_result(save_result)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 if __name__ == "__main__":

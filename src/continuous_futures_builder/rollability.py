@@ -7,6 +7,7 @@ import polars as pl
 from continuous_futures_builder.models import (
     ContractCandleSummary,
     FuturesContract,
+    PrunedContract,
     RollCalendarResult,
     RollEvent,
 )
@@ -49,17 +50,27 @@ def _segment_row_count(candles: pl.DataFrame, start: date | None, end: date | No
 def filter_rollable_contracts(
     contracts: list[FuturesContract],
     candles_by_contract: dict[str, pl.DataFrame],
-) -> tuple[list[FuturesContract], list[str]]:
+) -> tuple[list[FuturesContract], list[str], list[PrunedContract]]:
     warnings: list[str] = []
+    pruned: list[PrunedContract] = []
     candidates_by_expiration: dict[date, list[tuple[FuturesContract, ContractCandleSummary]]] = {}
 
     for contract in contracts:
         candles = candles_by_contract[contract.secid]
         dates = _trading_dates(candles)
         if not any(day < contract.expiration_date for day in dates):
-            warnings.append(
+            reason = (
                 f"{contract.secid}: skipped from rollable chain because no candle exists "
                 f"before expiration {contract.expiration_date}"
+            )
+            warnings.append(reason)
+            pruned.append(
+                PrunedContract(
+                    secid=contract.secid,
+                    board=contract.board,
+                    category="sparse_contract",
+                    reason=reason,
+                )
             )
             continue
         summary = ContractCandleSummary(
@@ -81,22 +92,32 @@ def filter_rollable_contracts(
         for contract, summary in candidates:
             if contract.secid == chosen.secid and contract.board == chosen.board:
                 continue
-            warnings.append(
+            reason = (
                 f"{contract.secid}: skipped duplicate expiration_date {expiration_date}; "
                 f"kept {chosen.secid} with {chosen_summary.row_count} rows "
                 f"(skipped contract had {summary.row_count})"
             )
+            warnings.append(reason)
+            pruned.append(
+                PrunedContract(
+                    secid=contract.secid,
+                    board=contract.board,
+                    category="duplicate_expiration",
+                    reason=reason,
+                )
+            )
 
-    return filtered, warnings
+    return filtered, warnings, pruned
 
 
 def build_roll_calendar_with_non_empty_segments(
     contracts: list[FuturesContract],
     candles_by_contract: dict[str, pl.DataFrame],
     roll_days_before: int,
-) -> tuple[RollCalendarResult, list[FuturesContract], list[str]]:
+) -> tuple[RollCalendarResult, list[FuturesContract], list[str], list[PrunedContract]]:
     active_contracts = list(contracts)
     warnings: list[str] = []
+    pruned: list[PrunedContract] = []
 
     for _ in range(len(contracts)):
         roll_calendar = build_fixed_days_roll_calendar(
@@ -112,13 +133,24 @@ def build_roll_calendar_with_non_empty_segments(
             row_count = _segment_row_count(candles_by_contract[contract.secid], start, end)
             if row_count == 0:
                 empty_contracts.add(contract.secid)
-                warnings.append(
+                reason = (
                     f"{contract.secid}: skipped from rollable chain because active "
                     f"segment is empty (start={start}, end={end})"
                 )
+                warnings.append(reason)
+                pruned.append(
+                    PrunedContract(
+                        secid=contract.secid,
+                        board=contract.board,
+                        category="empty_active_segment",
+                        reason=reason,
+                        start=start,
+                        end=end,
+                    )
+                )
 
         if not empty_contracts:
-            return roll_calendar, segment_contracts, warnings
+            return roll_calendar, segment_contracts, warnings, pruned
 
         active_contracts = [
             contract for contract in active_contracts if contract.secid not in empty_contracts
@@ -129,4 +161,4 @@ def build_roll_calendar_with_non_empty_segments(
         candles_by_contract=candles_by_contract,
         roll_days_before=roll_days_before,
     )
-    return roll_calendar, active_contracts[: len(roll_calendar.events) + 1], warnings
+    return roll_calendar, active_contracts[: len(roll_calendar.events) + 1], warnings, pruned
