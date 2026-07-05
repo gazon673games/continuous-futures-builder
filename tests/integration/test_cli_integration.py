@@ -117,6 +117,36 @@ def test_cli_chain_build_and_validate(temp_data_root):
     assert "roll_date | from_contract | to_contract" in roll_report.output
     assert "CRH4 | CRM4" in roll_report.output
 
+    investigation = runner.invoke(
+        app,
+        [
+            "investigate-roll",
+            "--data-root",
+            str(temp_data_root),
+            "--path",
+            str(output_path),
+            "--roll-date",
+            "2024-03-12",
+            "--from-contract",
+            "CRH4",
+            "--to-contract",
+            "CRM4",
+            "--metadata-snapshot-ts",
+            "20240101T000000Z",
+            "--query",
+            "CR",
+            "--window-rows",
+            "2",
+            "--structural-gap-roll-pct-threshold",
+            "1",
+        ],
+    )
+
+    assert investigation.exit_code == 0, investigation.output
+    assert "primary_classification:" in investigation.output
+    assert "continuous_window:" in investigation.output
+    assert "candidate_contracts:" in investigation.output
+
 
 def test_cli_accepts_repeated_secid_prefix(multi_prefix_data_root):
     runner = CliRunner()

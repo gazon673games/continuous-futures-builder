@@ -20,6 +20,8 @@ This project builds derived continuous futures datasets from local normalized da
 - Reports sparse-contract pruning explicitly in build output.
 - Produces compact quality and roll diagnostics without printing full
   DataFrames.
+- Investigates individual roll outliers with source candle windows,
+  candidate/pruned contract summaries, and diagnostic structural-gap flags.
 - Writes derived Parquet under `data_root/derived/continuous_futures/...`.
 
 ## What It Does Not Do
@@ -374,6 +376,25 @@ uv run continuous-futures roll-report \
 This writes `roll_report.parquet`, `roll_report.csv`, and
 `quality_summary.json`. Reports under `data/` are generated artifacts and should
 not be committed.
+
+Investigate a single roll outlier with source candles and nearby candidate
+contracts:
+
+```bash
+uv run continuous-futures investigate-roll \
+  --data-root ../moex_iss_adapter/data \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --roll-date 2020-02-06 \
+  --from-contract CYH0 \
+  --to-contract CYM2 \
+  --metadata-snapshot-ts <SNAPSHOT_TS>
+```
+
+Use `--save --output-dir <DIR>` to write `investigation_summary.json`,
+`continuous_window.csv`, `from_contract_window.csv`, `to_contract_window.csv`,
+and `candidate_contracts.csv`. The structural-gap flags in this report are
+diagnostic only and do not alter the built Parquet. See
+`docs/architecture/roll_outlier_investigation.md`.
 
 Family transitions are generic. The builder compares inferred SECID prefixes
 or the explicit user-provided prefixes and reports transitions such as
