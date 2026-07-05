@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -20,6 +21,12 @@ from continuous_futures_builder.investigation import (
 from continuous_futures_builder.models import ContractChainResult
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.quality import build_quality_report
+from continuous_futures_builder.quality_gate import (
+    QualityGateResult,
+    evaluate_quality_gate,
+    load_quality_gate_policy,
+    save_quality_gate_manifest,
+)
 from continuous_futures_builder.roll_report import (
     build_roll_report,
     filter_roll_report,
@@ -38,6 +45,18 @@ def _print_result(result: object) -> None:
         else:
             rendered = value
         typer.echo(f"{key}: {rendered}")
+
+
+def _print_quality_gate_result(result: QualityGateResult) -> None:
+    typer.echo(f"dataset: {result.dataset or ''}")
+    typer.echo(f"status: {result.status}")
+    typer.echo(f"approved_for_research: {result.approved_for_research}")
+    typer.echo(f"reason_count: {result.reason_count}")
+    typer.echo(f"reasons: {json.dumps(result.reasons, ensure_ascii=False)}")
+    typer.echo(
+        "metrics: "
+        + json.dumps(result.metrics.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+    )
 
 
 def _print_roll_rows(rows: list[object]) -> None:
@@ -311,6 +330,47 @@ def quality(path: Annotated[Path, typer.Option()]) -> None:
         raise typer.Exit(1) from exc
 
     _print_result(report)
+
+
+@app.command("quality-gate")
+def quality_gate(
+    path: Annotated[Path | None, typer.Option()] = None,
+    paths: Annotated[list[Path] | None, typer.Option("--paths")] = None,
+    policy: Annotated[Path | None, typer.Option()] = None,
+    save: Annotated[bool, typer.Option()] = False,
+    output: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    try:
+        target_paths = []
+        if path is not None:
+            target_paths.append(path)
+        if paths:
+            target_paths.extend(paths)
+        if not target_paths:
+            msg = "--path or at least one --paths value is required"
+            raise ContinuousFuturesError(msg)
+
+        effective_policy = load_quality_gate_policy(policy)
+        results = [
+            evaluate_quality_gate(target_path, effective_policy) for target_path in target_paths
+        ]
+        for index, result in enumerate(results):
+            if index:
+                typer.echo("")
+            _print_quality_gate_result(result)
+
+        if save:
+            if output is None:
+                msg = "--output is required when --save is passed"
+                raise ContinuousFuturesError(msg)
+            manifest_path = save_quality_gate_manifest(results, output, effective_policy)
+            typer.echo(f"manifest_path: {manifest_path}")
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if any(result.status != "approved" for result in results):
+        raise typer.Exit(1)
 
 
 @app.command("roll-report")

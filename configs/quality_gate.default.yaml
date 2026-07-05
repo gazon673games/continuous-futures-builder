@@ -1,0 +1,9 @@
+max_duplicate_ts: 0
+max_null_price_count: 0
+max_null_active_contract_count: 0
+max_source_coverage_gap_days: 30
+max_roll_gap_pct: 25.0
+allow_family_transitions: true
+max_family_transition_gap_pct: 25.0
+allow_empty_active_segments: false
+require_validation_status_ok: true

@@ -20,6 +20,8 @@ This project builds derived continuous futures datasets from local normalized da
 - Reports sparse-contract pruning explicitly in build output.
 - Produces compact quality and roll diagnostics without printing full
   DataFrames.
+- Applies a policy-based quality gate that marks generated datasets as
+  `approved`, `rejected`, or `split_required`.
 - Investigates individual roll outliers with source candle windows,
   candidate/pruned contract summaries, and diagnostic structural-gap flags.
 - Writes derived Parquet under `data_root/derived/continuous_futures/...`.
@@ -190,6 +192,11 @@ uv run continuous-futures quality \
 ```
 
 ```bash
+uv run continuous-futures quality-gate \
+  --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
+```
+
+```bash
 uv run continuous-futures roll-report \
   --path tests/fixtures/data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet \
   --top 10
@@ -340,6 +347,30 @@ families/prefixes used, family transition count and diagnostics, roll-gap
 summary with the roll date/contracts responsible for the maximum absolute gap,
 family-transition gap summary, and adjustment-factor range for back-adjusted
 output. It does not print the full DataFrame.
+
+Apply the policy-based quality gate before using generated Parquet in research:
+
+```bash
+uv run continuous-futures quality-gate \
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --policy configs/quality_gate.default.yaml
+```
+
+Check several datasets and write a manifest:
+
+```bash
+uv run continuous-futures quality-gate \
+  --paths data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=USDRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --paths data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --paths data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet \
+  --policy configs/quality_gate.default.yaml \
+  --save \
+  --output data/reports/continuous_futures/quality_gate_manifest.json
+```
+
+The gate exits `0` only when every dataset is `approved`; `rejected` and
+`split_required` both exit `1`. See
+`docs/architecture/data_quality_gate.md`.
 
 Detailed roll diagnostics:
 
