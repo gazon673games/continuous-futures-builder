@@ -19,6 +19,10 @@ from continuous_futures_builder.investigation import (
     investigate_roll as build_roll_investigation,
 )
 from continuous_futures_builder.models import ContractChainResult
+from continuous_futures_builder.nearest_contract import (
+    NearestContractBuildConfig,
+    build_nearest_contract_dataset,
+)
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.quality import build_quality_report
 from continuous_futures_builder.quality_gate import (
@@ -35,6 +39,8 @@ from continuous_futures_builder.roll_report import (
 from continuous_futures_builder.storage import ContinuousFuturesStorage
 
 app = typer.Typer(help="Build local derived continuous futures datasets.")
+nearest_app = typer.Typer(help="Build nearest-contract futures datasets.")
+app.add_typer(nearest_app, name="nearest")
 
 
 def _print_result(result: object) -> None:
@@ -300,6 +306,64 @@ def build(
     _print_result(result)
     if head > 0 and result.output_path is not None:
         typer.echo(pl.read_parquet(result.output_path).head(head))
+
+
+@nearest_app.command("build")
+def nearest_build(
+    data_root: Annotated[Path, typer.Option()],
+    output_root: Annotated[Path, typer.Option()] = Path("data"),
+    exchange: Annotated[str, typer.Option()] = "MOEX",
+    engine: Annotated[str, typer.Option()] = "futures",
+    market: Annotated[str, typer.Option()] = "forts",
+    board: Annotated[str, typer.Option()] = "RFUD",
+    secid_prefix: Annotated[list[str] | None, typer.Option("--secid-prefix")] = None,
+    secid_prefixes: Annotated[str | None, typer.Option("--secid-prefixes")] = None,
+    include_secid: Annotated[list[str] | None, typer.Option()] = None,
+    exclude_secid: Annotated[list[str] | None, typer.Option()] = None,
+    asset_code: Annotated[str | None, typer.Option()] = "CNY",
+    query: Annotated[str | None, typer.Option()] = None,
+    timeframe: Annotated[str, typer.Option()] = "5m",
+    continuous_symbol: Annotated[str, typer.Option()] = "CNYRUB_NEAREST_5M",
+    adjustment_mode: Annotated[str, typer.Option()] = "unadjusted",
+    roll_days_before_expiration: Annotated[int, typer.Option("--roll-days-before-expiration")] = 3,
+    metadata_snapshot_ts: Annotated[str | None, typer.Option()] = None,
+    overwrite: Annotated[bool, typer.Option()] = False,
+    reports_root: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    try:
+        prefixes = normalize_secid_prefixes(
+            secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
+        )
+        config = NearestContractBuildConfig(
+            data_root=data_root,
+            output_root=output_root,
+            exchange=exchange,
+            engine=engine,
+            market=market,
+            board=board,
+            continuous_symbol=continuous_symbol,
+            timeframe=timeframe,
+            metadata_snapshot_ts=metadata_snapshot_ts,
+            query=query,
+            asset_code=asset_code,
+            secid_prefixes=prefixes,
+            include_secid=include_secid or [],
+            exclude_secid=exclude_secid or [],
+            roll_days_before_expiration=roll_days_before_expiration,
+            adjustment_mode=adjustment_mode,
+            overwrite=overwrite,
+            reports_root=reports_root,
+        )
+        result = build_nearest_contract_dataset(config)
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _print_result(result)
 
 
 @app.command()

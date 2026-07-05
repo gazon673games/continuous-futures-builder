@@ -202,6 +202,103 @@ uv run continuous-futures roll-report \
   --top 10
 ```
 
+## Nearest-contract intraday datasets
+
+`CNYRUB_NEAREST_5M` is a derived nearest-contract intraday dataset for local
+CNY/RUB futures research. It is not a back-adjusted continuous series: each
+row keeps the real, unadjusted OHLCV price from the concrete active contract.
+The dataset is meant for workflows that need one tradable-looking intraday
+stream while still preserving the executable source contract on every row.
+
+The builder consumes already-normalized 5-minute concrete futures candles:
+
+```text
+../moex_iss_adapter/data/normalized/candles/exchange=MOEX/engine=futures/market=forts/board=RFUD/symbol=<SECID>/timeframe=5m/part-000.parquet
+```
+
+Those 5-minute candles are treated as validated input. In the local adapter
+workflow they were derived upstream by `moex_iss_adapter` from MOEX 1-minute
+bars; this builder does not download MOEX data and does not re-aggregate 1m
+bars into 5m bars.
+
+Build the CR-family CNY/RUB nearest-contract dataset:
+
+```bash
+uv run continuous-futures nearest build \
+  --data-root ../moex_iss_adapter/data \
+  --output-root data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --board RFUD \
+  --secid-prefix CR \
+  --asset-code CNY \
+  --timeframe 5m \
+  --continuous-symbol CNYRUB_NEAREST_5M \
+  --adjustment-mode unadjusted \
+  --roll-days-before-expiration 3
+```
+
+The command chooses the latest metadata snapshot unless
+`--metadata-snapshot-ts` is provided. Historical contracts that are absent from
+a current snapshot may be augmented from existing candle partitions using the
+same documented local fallback as the daily continuous builder; contracts with
+invalid or empty expiration metadata are rejected.
+
+Output is written under:
+
+```text
+data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet
+```
+
+Required traceability columns include:
+
+```text
+source, exchange, engine, market, board, symbol, continuous_symbol, timeframe,
+ts, open, high, low, close, volume, value, currency, active_contract,
+source_contract_symbol, roll_id, is_roll_boundary, dataset_type,
+adjustment_mode
+```
+
+`symbol` and `continuous_symbol` are both `CNYRUB_NEAREST_5M`.
+`active_contract` and `source_contract_symbol` hold the concrete SECID that
+supplied the row. `dataset_type` is `nearest_contract`, and
+`adjustment_mode` is always `unadjusted`.
+
+Rolls are date-based. For a contract expiring on date `D`, the target roll date
+is `D - --roll-days-before-expiration` calendar days. If that date has candles
+in the next contract, all rows from that date onward use the next contract. If
+the target date has no rows, the switch happens at the first available
+timestamp after the target date.
+
+Diagnostics are written under:
+
+```text
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/
+```
+
+Artifacts:
+
+```text
+build_summary.json
+roll_calendar.csv
+roll_calendar.parquet
+quality.json
+contract_coverage.csv
+contract_coverage.parquet
+```
+
+`quality.json` reports row counts, min/max timestamps, duplicate timestamps,
+null OHLC/contract counts, large intraday gaps, roll boundaries, contracts
+used, contracts skipped, and status: `ok`, `warning`, or `rejected`. Large
+intraday gaps, source-coverage gaps, and large roll price gaps are warnings;
+duplicate timestamps, null OHLC prices, null active contracts, missing
+expiration metadata, and zero-row output are rejected.
+
+Limitations: the MVP is CR-family focused, supports only unadjusted prices,
+uses a fixed calendar-days-before-expiration roll rule, and does not change the
+existing backtest quality-gate manifest.
+
 ## Real Local CNY/RUB Workflow
 
 Manual workflow:
