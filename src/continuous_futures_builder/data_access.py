@@ -7,6 +7,7 @@ import polars as pl
 
 from continuous_futures_builder.exceptions import InputDataError
 from continuous_futures_builder.models import ContractCandleSummary
+from continuous_futures_builder.prefixes import matches_any_secid_prefix, normalize_secid_prefixes
 from continuous_futures_builder.schemas import (
     validate_candle_schema,
     validate_metadata_schema,
@@ -45,7 +46,8 @@ class ContinuousFuturesDataAccess(Protocol):
         engine: str,
         market: str,
         timeframe: str,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
     ) -> list[ContractCandleSummary]: ...
 
@@ -154,7 +156,8 @@ class LocalParquetDataAccess:
         engine: str,
         market: str,
         timeframe: str,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
     ) -> list[ContractCandleSummary]:
         base = (
@@ -169,7 +172,10 @@ class LocalParquetDataAccess:
             return []
 
         include = {secid.upper() for secid in include_secid or []}
-        prefix = secid_prefix.upper() if secid_prefix else None
+        prefixes = normalize_secid_prefixes(
+            secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
+        )
         summaries: list[ContractCandleSummary] = []
         for board_path in sorted(base.glob("board=*")):
             if not board_path.is_dir():
@@ -180,9 +186,10 @@ class LocalParquetDataAccess:
                     continue
                 secid = symbol_path.name.removeprefix("symbol=")
                 secid_upper = secid.upper()
-                if prefix and not secid_upper.startswith(prefix):
+                forced = secid_upper in include
+                if prefixes and not matches_any_secid_prefix(secid, prefixes) and not forced:
                     continue
-                if include and secid_upper not in include and prefix is None:
+                if include and not forced and not prefixes:
                     continue
                 timeframe_path = symbol_path / f"timeframe={timeframe}"
                 if not timeframe_path.exists():
@@ -289,7 +296,8 @@ class OhlcvDataStoreAccess:
         engine: str,
         market: str,
         timeframe: str,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
     ) -> list[ContractCandleSummary]:
         return LocalParquetDataAccess(self.data_root).list_contract_candle_summaries(
@@ -298,6 +306,7 @@ class OhlcvDataStoreAccess:
             market=market,
             timeframe=timeframe,
             secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
             include_secid=include_secid,
         )
 

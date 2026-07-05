@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 
 from continuous_futures_builder.models import FuturesContract, SkippedContract
+from continuous_futures_builder.prefixes import matches_any_secid_prefix, normalize_secid_prefixes
 
 
 def _norm(value: object) -> str:
@@ -46,10 +47,10 @@ def _matches_asset_code(row: dict[str, Any], asset_code: str | None) -> bool:
     return _norm(row.get("assetcode")) == _norm(asset_code)
 
 
-def _matches_secid_prefix(row: dict[str, Any], secid_prefix: str | None) -> bool:
-    if not secid_prefix:
+def _matches_secid_prefixes(row: dict[str, Any], secid_prefixes: list[str]) -> bool:
+    if not secid_prefixes:
         return True
-    return _norm(row.get("secid")).startswith(_norm(secid_prefix))
+    return matches_any_secid_prefix(row.get("secid"), secid_prefixes)
 
 
 def _contract_from_row(row: dict[str, Any]) -> FuturesContract | SkippedContract:
@@ -95,10 +96,12 @@ def filter_contracts(
     metadata: pl.DataFrame,
     query: str | None = None,
     asset_code: str | None = None,
-    secid_prefix: str | None = None,
+    secid_prefix: str | list[str] | None = None,
+    secid_prefixes: list[str] | None = None,
     include_secid: list[str] | None = None,
     exclude_secid: list[str] | None = None,
 ) -> tuple[list[FuturesContract], list[SkippedContract]]:
+    prefixes = normalize_secid_prefixes(secid_prefix=secid_prefix, secid_prefixes=secid_prefixes)
     include = {_norm(secid) for secid in include_secid or []}
     exclude = {_norm(secid) for secid in exclude_secid or []}
     selected: list[FuturesContract] = []
@@ -120,7 +123,7 @@ def filter_contracts(
         matches = (
             _matches_query(row, query)
             and _matches_asset_code(row, asset_code)
-            and _matches_secid_prefix(row, secid_prefix)
+            and _matches_secid_prefixes(row, prefixes)
         )
         if not matches and not forced:
             continue

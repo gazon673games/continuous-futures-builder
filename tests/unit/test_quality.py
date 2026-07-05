@@ -25,6 +25,29 @@ def test_quality_report_counts_contracts_and_rolls(temp_data_root):
     assert report.max_abs_roll_gap is not None
 
 
+def test_quality_report_includes_family_transitions(multi_prefix_data_root):
+    result = ContinuousFuturesBuilder(multi_prefix_data_root).build(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CNY",
+        secid_prefixes=["CY", "CR"],
+        continuous_symbol="CNYRUB_CONT_LONG",
+        adjustment_mode="unadjusted",
+        save=True,
+        overwrite=True,
+    )
+
+    assert result.output_path is not None
+    report = build_quality_report(result.output_path)
+
+    assert report.status == "ok"
+    assert report.prefixes_used == ["CY", "CR"]
+    assert report.families_used == ["CY", "CR"]
+    assert report.family_transition_count == 1
+    assert report.family_transitions[0].from_contract == "CYM3"
+    assert report.family_transitions[0].to_contract == "CRH4"
+    assert report.max_abs_family_transition_gap == 4.0
+
+
 def test_quality_report_detects_duplicate_ts(temp_data_root, tmp_path):
     result = ContinuousFuturesBuilder(temp_data_root).build(
         metadata_snapshot_ts="20240101T000000Z",

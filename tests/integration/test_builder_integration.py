@@ -73,6 +73,43 @@ def test_builder_chain_preview_from_fixture(temp_data_root):
     assert any("BADCR" in warning for warning in chain.warnings)
 
 
+def test_builder_builds_multi_prefix_chain_and_family_diagnostics(multi_prefix_data_root):
+    builder = ContinuousFuturesBuilder(multi_prefix_data_root)
+
+    unadjusted = builder.build(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CNY",
+        secid_prefixes=["CY", "CR"],
+        continuous_symbol="CNYRUB_CONT_LONG",
+        adjustment_mode="unadjusted",
+        save=True,
+        overwrite=True,
+    )
+    adjusted = builder.build(
+        metadata_snapshot_ts="20240101T000000Z",
+        query="CNY",
+        secid_prefixes=["CY", "CR"],
+        continuous_symbol="CNYRUB_CONT_LONG",
+        adjustment_mode="back_adjusted",
+        save=True,
+        overwrite=True,
+    )
+
+    assert unadjusted.contracts_used == ["CYH3", "CYM3", "CRH4", "CRM4", "CRU4", "CRZ4"]
+    assert adjusted.contracts_used == unadjusted.contracts_used
+    assert unadjusted.prefixes_used == ["CY", "CR"]
+    assert unadjusted.family_transition_count == 1
+    transition = unadjusted.family_transitions[0]
+    assert transition.from_contract == "CYM3"
+    assert transition.to_contract == "CRH4"
+    assert transition.from_prefix == "CY"
+    assert transition.to_prefix == "CR"
+    assert transition.roll_gap == 4.0
+    assert unadjusted.max_abs_family_transition_gap == 4.0
+    assert adjusted.output_path is not None
+    ContinuousFuturesStorage(multi_prefix_data_root).validate_path(adjusted.output_path)
+
+
 def test_builder_augments_chain_from_existing_candle_partitions(temp_data_root):
     metadata_path = (
         temp_data_root

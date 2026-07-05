@@ -53,6 +53,20 @@ class ContractChainResult(BaseModel):
         return [contract.secid for contract in self.contracts]
 
 
+class ContractFamilyTransition(BaseModel):
+    from_contract: str
+    to_contract: str
+    from_prefix: str
+    to_prefix: str
+    transition_date: date | datetime
+    roll_date: date
+    old_close: float | None = None
+    new_close: float | None = None
+    roll_gap: float | None = None
+    gap_percent: float | None = None
+    warning: str | None = None
+
+
 class RollEvent(BaseModel):
     roll_id: str
     from_contract: str
@@ -81,6 +95,7 @@ class ContinuousFuturesBuildConfig(BaseModel):
     query: str | None = "CNY"
     asset_code: str | None = None
     secid_prefix: str | None = None
+    secid_prefixes: list[str] = Field(default_factory=list)
     include_secid: list[str] = Field(default_factory=list)
     exclude_secid: list[str] = Field(default_factory=list)
     roll_rule: str = DEFAULT_ROLL_RULE
@@ -134,6 +149,11 @@ class ContinuousFuturesBuildResult(BaseModel):
     end_ts: date | datetime | None = None
     contracts_used: list[str]
     roll_count: int
+    prefixes_used: list[str] = Field(default_factory=list)
+    families_used: list[str] = Field(default_factory=list)
+    family_transition_count: int = 0
+    family_transitions: list[ContractFamilyTransition] = Field(default_factory=list)
+    max_abs_family_transition_gap: float | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -147,13 +167,18 @@ class ContinuousFuturesQualityReport(BaseModel):
     max_ts: date | datetime | None = None
     contracts_used: list[str] = Field(default_factory=list)
     contract_count: int
+    prefixes_used: list[str] = Field(default_factory=list)
+    families_used: list[str] = Field(default_factory=list)
     roll_count: int
     roll_dates: list[date | datetime] = Field(default_factory=list)
+    family_transition_count: int = 0
+    family_transitions: list[ContractFamilyTransition] = Field(default_factory=list)
     gaps_count: int
     duplicate_ts_count: int
     null_active_contract_count: int
     null_price_count: int
     max_abs_roll_gap: float | None = None
+    max_abs_family_transition_gap: float | None = None
     adjustment_factor_min: float | None = None
     adjustment_factor_max: float | None = None
     status: str

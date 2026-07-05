@@ -8,11 +8,15 @@ This project builds derived continuous futures datasets from local normalized da
 
 - Reads local normalized futures candles and metadata snapshots.
 - Builds a configurable contract chain from metadata and, when explicitly
-  filtered by SECID prefix or include list, can augment missing historical
+  filtered by one or more SECID prefixes or include list, can augment missing historical
   metadata from existing candle partitions.
+- Supports multi-family chains such as `CY*` plus `CR*` without hardcoding
+  those families in code.
 - Builds a fixed-days-before-expiration roll calendar.
 - Stitches concrete contracts into a continuous series.
 - Preserves `active_contract` and `source_contract_symbol` on every output row.
+- Reports family/prefix transitions and roll gaps so family changes stay
+  visible in research outputs.
 - Writes derived Parquet under `data_root/derived/continuous_futures/...`.
 
 ## What It Does Not Do
@@ -107,6 +111,7 @@ result = builder.build(
     timeframe="1d",
     metadata_snapshot_ts="20240101T000000Z",
     query="CR",
+    secid_prefixes=["CR"],
     roll_rule="fixed_days_before_expiration",
     roll_days_before=3,
     adjustment_mode="back_adjusted",
@@ -124,6 +129,7 @@ chain = builder.build_chain(
     market="forts",
     metadata_snapshot_ts="20240101T000000Z",
     query="CR",
+    secid_prefixes=["CR"],
 )
 ```
 
@@ -146,7 +152,8 @@ uv run continuous-futures chain \
   --engine futures \
   --market forts \
   --metadata-snapshot-ts 20240101T000000Z \
-  --query CR
+  --query CR \
+  --secid-prefix CR
 ```
 
 ```bash
@@ -159,6 +166,7 @@ uv run continuous-futures build \
   --timeframe 1d \
   --metadata-snapshot-ts 20240101T000000Z \
   --query CR \
+  --secid-prefix CR \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
   --adjustment-mode back_adjusted \
@@ -204,13 +212,14 @@ uv run continuous-futures chain \
   --market forts \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
   --query CNY \
+  --secid-prefix CY \
   --secid-prefix CR
 ```
 
 The `chain` command prints selected SECIDs plus diagnostics per contract:
-`assetcode`, expiration dates, candle row count, and min/max timestamps. If
+`prefix`, `assetcode`, expiration dates, candle row count, and min/max timestamps. If
 `--query CNY` mixes contract families such as `CR*`, `MY*`, `UC*`, and
-`CNYRUBF`, narrow it before building:
+`CNYRUBF`, narrow it before building with explicit prefixes:
 
 ```bash
 uv run continuous-futures chain \
@@ -220,17 +229,37 @@ uv run continuous-futures chain \
   --market forts \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
   --query CNY \
+  --secid-prefix CY \
   --secid-prefix CR
 ```
 
-When a metadata snapshot contains only current/future contracts but normalized
-candle partitions already contain historical SECIDs, `--secid-prefix CR`
-allows the builder to augment missing historical CR contracts from those candle
-partitions. For augmented contracts, expiration and last-trade dates are derived
-from the last available candle timestamp. The CLI prints a warning naming the
-augmented contracts.
+Repeated `--secid-prefix` is preferred. A comma-separated form is also
+accepted for shell convenience:
 
-Build `CNYRUB_CONT` unadjusted into this repository's `data/derived`:
+```bash
+uv run continuous-futures chain \
+  --data-root ../moex_iss_adapter/data \
+  --exchange MOEX \
+  --engine futures \
+  --market forts \
+  --metadata-snapshot-ts <SNAPSHOT_TS> \
+  --query CNY \
+  --secid-prefixes CY,CR
+```
+
+When a metadata snapshot contains only current/future contracts but normalized
+candle partitions already contain historical SECIDs, explicit
+`--secid-prefix` values allow the builder to augment missing historical
+contracts from matching candle partitions. For augmented contracts, expiration
+and last-trade dates are derived from the last available candle timestamp. The
+CLI prints a warning naming the augmented contracts.
+
+For the longest local CNY/RUB history, build a separate long series from both
+`CY*` and `CR*` families. `CNYRUB_CONT_LONG` is intentionally distinct from the
+older `CNYRUB_CONT` CR-only output: it crosses a family boundary and its quality
+report records that transition.
+
+Build `CNYRUB_CONT_LONG` unadjusted into this repository's `data/derived`:
 
 ```bash
 uv run continuous-futures build \
@@ -239,10 +268,11 @@ uv run continuous-futures build \
   --exchange MOEX \
   --engine futures \
   --market forts \
-  --continuous-symbol CNYRUB_CONT \
+  --continuous-symbol CNYRUB_CONT_LONG \
   --timeframe 1d \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
   --query CNY \
+  --secid-prefix CY \
   --secid-prefix CR \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
@@ -260,10 +290,11 @@ uv run continuous-futures build \
   --exchange MOEX \
   --engine futures \
   --market forts \
-  --continuous-symbol CNYRUB_CONT \
+  --continuous-symbol CNYRUB_CONT_LONG \
   --timeframe 1d \
   --metadata-snapshot-ts <SNAPSHOT_TS> \
   --query CNY \
+  --secid-prefix CY \
   --secid-prefix CR \
   --roll-rule fixed_days_before_expiration \
   --roll-days-before 3 \
@@ -276,26 +307,34 @@ Validate both outputs:
 
 ```bash
 uv run continuous-futures validate \
-  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
 
 uv run continuous-futures validate \
-  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
 Inspect compact quality reports:
 
 ```bash
 uv run continuous-futures quality \
-  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=unadjusted/part-000.parquet
 
 uv run continuous-futures quality \
-  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
+  --path data/derived/continuous_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_CONT_LONG/timeframe=1d/adjustment_mode=back_adjusted/part-000.parquet
 ```
 
 The quality report prints row count, date range, contracts used, roll count,
 roll dates, gap count, duplicate timestamp count, null contract/price counts,
-roll-gap summary for unadjusted output, and adjustment-factor range for
-back-adjusted output. It does not print the full DataFrame.
+families/prefixes used, family transition count and diagnostics, roll-gap
+summary for unadjusted output, family-transition gap summary, and
+adjustment-factor range for back-adjusted output. It does not print the full
+DataFrame.
+
+Family transitions are generic. The builder compares inferred SECID prefixes
+or the explicit user-provided prefixes and reports transitions such as
+`CYM2 -> CRM2` without treating `CY` or `CR` specially. A large transition gap
+is surfaced as a diagnostic warning, but the transition is not automatically
+forbidden.
 
 Automated tests use fixtures only. They do not require `../moex_iss_adapter/data` and do not call MOEX ISS.
 

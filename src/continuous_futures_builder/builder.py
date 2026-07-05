@@ -12,14 +12,23 @@ from continuous_futures_builder.data_access import (
     ContinuousFuturesDataAccess,
     create_data_access,
 )
+from continuous_futures_builder.diagnostics import (
+    build_family_transition_diagnostics,
+    max_abs_transition_gap,
+)
 from continuous_futures_builder.models import (
     ContinuousFuturesBuildConfig,
     ContinuousFuturesBuildResult,
     ContractCandleSummary,
     ContractChainResult,
+    ContractFamilyTransition,
     FuturesContract,
 )
-from continuous_futures_builder.roll_calendar import build_fixed_days_roll_calendar
+from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
+from continuous_futures_builder.rollability import (
+    build_roll_calendar_with_non_empty_segments,
+    filter_rollable_contracts,
+)
 from continuous_futures_builder.schemas import validate_continuous_schema
 from continuous_futures_builder.stitcher import stitch_unadjusted
 from continuous_futures_builder.storage import ContinuousFuturesStorage
@@ -80,12 +89,12 @@ class ContinuousFuturesBuilder:
         engine: str,
         market: str,
         timeframe: str,
-        secid_prefix: str | None,
+        secid_prefixes: list[str],
         include_secid: list[str] | None,
         exclude_secid: list[str] | None,
         asset_code: str | None,
     ) -> ContractChainResult:
-        if secid_prefix is None and not include_secid:
+        if not secid_prefixes and not include_secid:
             return chain
 
         existing = {_norm(contract.secid) for contract in chain.contracts}
@@ -96,7 +105,7 @@ class ContinuousFuturesBuilder:
             engine=engine,
             market=market,
             timeframe=timeframe,
-            secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
             include_secid=include_secid,
         )
         additions: list[FuturesContract] = []
@@ -151,11 +160,16 @@ class ContinuousFuturesBuilder:
         metadata_snapshot_ts: str = "20240101T000000Z",
         query: str | None = "CNY",
         asset_code: str | None = None,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
         exclude_secid: list[str] | None = None,
         timeframe: str = "1d",
     ) -> ContractChainResult:
+        prefixes = normalize_secid_prefixes(
+            secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
+        )
         metadata = self.data_access.load_metadata_snapshot(
             exchange=exchange,
             engine=engine,
@@ -166,7 +180,7 @@ class ContinuousFuturesBuilder:
             metadata=metadata,
             query=query,
             asset_code=asset_code,
-            secid_prefix=secid_prefix,
+            secid_prefixes=prefixes,
             include_secid=include_secid,
             exclude_secid=exclude_secid,
         )
@@ -176,7 +190,7 @@ class ContinuousFuturesBuilder:
             engine=engine,
             market=market,
             timeframe=timeframe,
-            secid_prefix=secid_prefix,
+            secid_prefixes=prefixes,
             include_secid=include_secid,
             exclude_secid=exclude_secid,
             asset_code=asset_code,
@@ -199,7 +213,16 @@ class ContinuousFuturesBuilder:
 
     def _build_frame(
         self, config: ContinuousFuturesBuildConfig
-    ) -> tuple[pl.DataFrame, ContractChainResult, list[str]]:
+    ) -> tuple[
+        pl.DataFrame,
+        ContractChainResult,
+        list[str],
+        list[ContractFamilyTransition],
+    ]:
+        prefixes = normalize_secid_prefixes(
+            secid_prefix=config.secid_prefix,
+            secid_prefixes=config.secid_prefixes,
+        )
         chain = self.build_chain(
             exchange=config.exchange,
             engine=config.engine,
@@ -207,23 +230,33 @@ class ContinuousFuturesBuilder:
             metadata_snapshot_ts=config.metadata_snapshot_ts,
             query=config.query,
             asset_code=config.asset_code,
-            secid_prefix=config.secid_prefix,
+            secid_prefixes=prefixes,
             include_secid=config.include_secid,
             exclude_secid=config.exclude_secid,
             timeframe=config.timeframe,
         )
         candles_by_contract = self._load_candles(config, chain.contracts)
-        roll_calendar = build_fixed_days_roll_calendar(
-            contracts=chain.contracts,
-            candles_by_contract=candles_by_contract,
-            roll_days_before=config.roll_days_before,
+        rollable_contracts, rollability_warnings = filter_rollable_contracts(
+            chain.contracts,
+            candles_by_contract,
         )
-        active_contracts = chain.contracts[: len(roll_calendar.events) + 1]
+        roll_calendar, active_contracts, segment_warnings = (
+            build_roll_calendar_with_non_empty_segments(
+                contracts=rollable_contracts,
+                candles_by_contract=candles_by_contract,
+                roll_days_before=config.roll_days_before,
+            )
+        )
         frame = stitch_unadjusted(
             config=config,
             contracts=active_contracts,
             roll_events=roll_calendar.events,
             candles_by_contract=candles_by_contract,
+        )
+        family_transitions = build_family_transition_diagnostics(
+            roll_calendar.events,
+            candles_by_contract,
+            known_prefixes=prefixes,
         )
         if config.adjustment_mode == ADJUSTMENT_BACK_ADJUSTED:
             frame = apply_additive_back_adjustment(
@@ -232,8 +265,13 @@ class ContinuousFuturesBuilder:
                 candles_by_contract=candles_by_contract,
             )
         validate_continuous_schema(frame)
-        warnings = [*chain.warnings, *roll_calendar.warnings]
-        return frame, chain, warnings
+        warnings = [
+            *chain.warnings,
+            *rollability_warnings,
+            *segment_warnings,
+            *roll_calendar.warnings,
+        ]
+        return frame, chain, warnings, family_transitions
 
     def build(
         self,
@@ -245,7 +283,8 @@ class ContinuousFuturesBuilder:
         metadata_snapshot_ts: str = "20240101T000000Z",
         query: str | None = "CNY",
         asset_code: str | None = None,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
         exclude_secid: list[str] | None = None,
         roll_rule: str = "fixed_days_before_expiration",
@@ -256,6 +295,10 @@ class ContinuousFuturesBuilder:
         output_root: str | Path | None = None,
     ) -> ContinuousFuturesBuildResult:
         effective_output_root = Path(output_root) if output_root is not None else self.output_root
+        prefixes = normalize_secid_prefixes(
+            secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
+        )
         config = ContinuousFuturesBuildConfig(
             data_root=self.data_root,
             output_root=effective_output_root,
@@ -267,14 +310,14 @@ class ContinuousFuturesBuilder:
             metadata_snapshot_ts=metadata_snapshot_ts,
             query=query,
             asset_code=asset_code,
-            secid_prefix=secid_prefix,
+            secid_prefixes=prefixes,
             include_secid=include_secid or [],
             exclude_secid=exclude_secid or [],
             roll_rule=roll_rule,
             roll_days_before=roll_days_before,
             adjustment_mode=adjustment_mode,
         )
-        frame, chain, warnings = self._build_frame(config)
+        frame, _chain, warnings, family_transitions = self._build_frame(config)
 
         output_path: Path | None = None
         if save:
@@ -289,14 +332,24 @@ class ContinuousFuturesBuilder:
             )
             storage.write(frame, output_path, overwrite=overwrite)
 
+        contracts_used = frame.get_column("active_contract").unique(maintain_order=True).to_list()
+        prefixes_used = []
+        for contract in contracts_used:
+            prefix = infer_contract_prefix(contract, prefixes)
+            if prefix not in prefixes_used:
+                prefixes_used.append(prefix)
+
         return ContinuousFuturesBuildResult(
             output_path=output_path,
             row_count=frame.height,
             start_ts=frame.get_column("ts").min(),
             end_ts=frame.get_column("ts").max(),
-            contracts_used=frame.get_column("active_contract")
-            .unique(maintain_order=True)
-            .to_list(),
+            contracts_used=contracts_used,
             roll_count=int(frame.get_column("roll_flag").sum()),
+            prefixes_used=prefixes_used,
+            families_used=prefixes_used,
+            family_transition_count=len(family_transitions),
+            family_transitions=family_transitions,
+            max_abs_family_transition_gap=max_abs_transition_gap(family_transitions),
             warnings=warnings,
         )

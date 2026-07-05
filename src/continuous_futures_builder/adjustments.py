@@ -14,11 +14,15 @@ from continuous_futures_builder.models import RollEvent
 from continuous_futures_builder.schemas import validate_continuous_schema
 
 
-def _close_on_roll_date(candles: pl.DataFrame, roll_date: date, contract: str) -> float:
-    matches = candles.filter(pl.col("ts").cast(pl.Date) == roll_date)
+def _first_close_on_or_after_roll_date(
+    candles: pl.DataFrame,
+    roll_date: date,
+    contract: str,
+) -> float:
+    matches = candles.filter(pl.col("ts").cast(pl.Date) >= roll_date).sort("ts")
     if matches.height == 0:
-        raise AdjustmentError(f"Missing close for {contract} on roll date {roll_date}")
-    return float(matches.sort("ts").get_column("close")[0])
+        raise AdjustmentError(f"Missing close for {contract} on or after roll date {roll_date}")
+    return float(matches.get_column("close")[0])
 
 
 def _previous_close(candles: pl.DataFrame, roll_date: date, contract: str) -> float:
@@ -41,7 +45,11 @@ def calculate_roll_gaps(
             raise AdjustmentError(f"Missing candles for {event.to_contract}")
 
         old_close = _previous_close(current, event.roll_date, event.from_contract)
-        new_close = _close_on_roll_date(next_contract, event.roll_date, event.to_contract)
+        new_close = _first_close_on_or_after_roll_date(
+            next_contract,
+            event.roll_date,
+            event.to_contract,
+        )
         gaps.append((event.roll_date, new_close - old_close))
     return gaps
 

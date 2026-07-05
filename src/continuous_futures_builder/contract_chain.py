@@ -18,7 +18,8 @@ def build_contract_chain(
     metadata: pl.DataFrame,
     query: str | None = None,
     asset_code: str | None = None,
-    secid_prefix: str | None = None,
+    secid_prefix: str | list[str] | None = None,
+    secid_prefixes: list[str] | None = None,
     include_secid: list[str] | None = None,
     exclude_secid: list[str] | None = None,
 ) -> ContractChainResult:
@@ -27,6 +28,7 @@ def build_contract_chain(
         query=query,
         asset_code=asset_code,
         secid_prefix=secid_prefix,
+        secid_prefixes=secid_prefixes,
         include_secid=include_secid,
         exclude_secid=exclude_secid,
     )

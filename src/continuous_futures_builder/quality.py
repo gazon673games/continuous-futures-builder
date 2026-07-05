@@ -14,6 +14,9 @@ from continuous_futures_builder.constants import (
     SUPPORTED_ADJUSTMENT_MODES,
 )
 from continuous_futures_builder.models import ContinuousFuturesQualityReport
+from continuous_futures_builder.prefixes import infer_contract_prefix
+
+LARGE_TRANSITION_GAP_PERCENT = 5.0
 
 
 def _column_or_empty(frame: pl.DataFrame, column: str) -> pl.Series:
@@ -73,6 +76,85 @@ def _contracts_used(frame: pl.DataFrame) -> list[str]:
         .unique(maintain_order=True)
         .to_list()
     ]
+
+
+def _prefixes_used(contracts: list[str]) -> list[str]:
+    prefixes: list[str] = []
+    for contract in contracts:
+        prefix = infer_contract_prefix(contract)
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+    return prefixes
+
+
+def _family_transitions(frame: pl.DataFrame):
+    from continuous_futures_builder.models import ContractFamilyTransition
+
+    required = {"ts", "close", "active_contract"}
+    if not required.issubset(frame.columns) or frame.height < 2:
+        return []
+
+    rows = (
+        frame.sort("ts")
+        .select(["ts", "close", "active_contract", "roll_date"])
+        .iter_rows(named=True)
+        if "roll_date" in frame.columns
+        else frame.sort("ts").select(["ts", "close", "active_contract"]).iter_rows(named=True)
+    )
+    transitions: list[ContractFamilyTransition] = []
+    previous = None
+    for row in rows:
+        if previous is None:
+            previous = row
+            continue
+
+        old_contract = str(previous["active_contract"])
+        new_contract = str(row["active_contract"])
+        if old_contract == new_contract:
+            previous = row
+            continue
+
+        old_prefix = infer_contract_prefix(old_contract)
+        new_prefix = infer_contract_prefix(new_contract)
+        if old_prefix == new_prefix:
+            previous = row
+            continue
+
+        old_close = float(previous["close"]) if previous["close"] is not None else None
+        new_close = float(row["close"]) if row["close"] is not None else None
+        roll_gap = None
+        gap_percent = None
+        if old_close is not None and new_close is not None:
+            roll_gap = new_close - old_close
+            if old_close != 0.0:
+                gap_percent = (roll_gap / old_close) * 100.0
+
+        warning = None
+        if gap_percent is not None and abs(gap_percent) >= LARGE_TRANSITION_GAP_PERCENT:
+            warning = f"large family transition gap: {gap_percent:.2f}%"
+
+        roll_date = row.get("roll_date") or row["ts"]
+        if hasattr(roll_date, "date"):
+            roll_date = roll_date.date()
+
+        transitions.append(
+            ContractFamilyTransition(
+                from_contract=old_contract,
+                to_contract=new_contract,
+                from_prefix=old_prefix,
+                to_prefix=new_prefix,
+                transition_date=row["ts"],
+                roll_date=roll_date,
+                old_close=old_close,
+                new_close=new_close,
+                roll_gap=roll_gap,
+                gap_percent=gap_percent,
+                warning=warning,
+            )
+        )
+        previous = row
+
+    return transitions
 
 
 def _max_abs_roll_gap(frame: pl.DataFrame) -> float | None:
@@ -154,21 +236,36 @@ def build_quality_report(path: str | Path) -> ContinuousFuturesQualityReport:
         max_abs_roll_gap = None
 
     roll_dates = _roll_dates(frame)
+    contracts_used = _contracts_used(frame)
+    prefixes_used = _prefixes_used(contracts_used)
+    family_transitions = _family_transitions(frame)
+    family_transition_gaps = [
+        abs(transition.roll_gap)
+        for transition in family_transitions
+        if transition.roll_gap is not None
+    ]
     return ContinuousFuturesQualityReport(
         path=target,
         adjustment_mode=adjustment_mode,
         row_count=frame.height,
         min_ts=frame.get_column("ts").min() if "ts" in frame.columns else None,
         max_ts=frame.get_column("ts").max() if "ts" in frame.columns else None,
-        contracts_used=_contracts_used(frame),
-        contract_count=len(_contracts_used(frame)),
+        contracts_used=contracts_used,
+        contract_count=len(contracts_used),
+        prefixes_used=prefixes_used,
+        families_used=prefixes_used,
         roll_count=len(roll_dates),
         roll_dates=roll_dates,
+        family_transition_count=len(family_transitions),
+        family_transitions=family_transitions,
         gaps_count=_gaps_count(frame.sort("ts")) if "ts" in frame.columns else 0,
         duplicate_ts_count=duplicate_ts_count,
         null_active_contract_count=null_active_contract_count,
         null_price_count=null_price_count,
         max_abs_roll_gap=max_abs_roll_gap,
+        max_abs_family_transition_gap=max(family_transition_gaps)
+        if family_transition_gaps
+        else None,
         adjustment_factor_min=factor_min,
         adjustment_factor_max=factor_max,
         status="failed" if warnings else "ok",

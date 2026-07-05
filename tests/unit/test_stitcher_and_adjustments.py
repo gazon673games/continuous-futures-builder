@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 
+import polars as pl
 import pytest
 
-from continuous_futures_builder.adjustments import apply_additive_back_adjustment
+from continuous_futures_builder.adjustments import (
+    apply_additive_back_adjustment,
+    calculate_roll_gaps,
+)
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.exceptions import ContinuousSeriesValidationError
-from continuous_futures_builder.models import ContinuousFuturesBuildConfig
+from continuous_futures_builder.models import ContinuousFuturesBuildConfig, RollEvent
 from continuous_futures_builder.roll_calendar import build_fixed_days_roll_calendar
 from continuous_futures_builder.schemas import validate_continuous_schema
 from continuous_futures_builder.stitcher import stitch_unadjusted
@@ -78,6 +82,33 @@ def test_back_adjustment_factor_calculation_and_continuity(fixture_root):
     assert closes[date(2024, 6, 11)] == closes[date(2024, 6, 12)]
     assert closes[date(2024, 9, 10)] == closes[date(2024, 9, 11)]
     assert adjusted.get_column("adjustment_mode").unique().to_list() == ["back_adjusted"]
+
+
+def test_roll_gap_uses_next_close_after_roll_date_when_exact_date_is_missing():
+    event = RollEvent(
+        roll_id="A_TO_B_20240110",
+        from_contract="AAH4",
+        to_contract="AAM4",
+        roll_date=date(2024, 1, 10),
+        from_expiration_date=date(2024, 1, 15),
+        to_expiration_date=date(2024, 2, 15),
+    )
+    candles = {
+        "AAH4": pl.DataFrame(
+            {
+                "ts": [date(2024, 1, 8), date(2024, 1, 9)],
+                "close": [100.0, 101.0],
+            }
+        ),
+        "AAM4": pl.DataFrame(
+            {
+                "ts": [date(2024, 1, 11)],
+                "close": [106.0],
+            }
+        ),
+    }
+
+    assert calculate_roll_gaps([event], candles) == [(date(2024, 1, 10), 5.0)]
 
 
 def test_output_validation_failure_on_duplicate_ts(fixture_root):

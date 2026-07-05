@@ -100,7 +100,8 @@ class CountingDataAccess:
         engine: str,
         market: str,
         timeframe: str,
-        secid_prefix: str | None = None,
+        secid_prefix: str | list[str] | None = None,
+        secid_prefixes: list[str] | None = None,
         include_secid: list[str] | None = None,
     ):
         return self.local.list_contract_candle_summaries(
@@ -109,6 +110,7 @@ class CountingDataAccess:
             market,
             timeframe,
             secid_prefix=secid_prefix,
+            secid_prefixes=secid_prefixes,
             include_secid=include_secid,
         )
 
@@ -161,6 +163,27 @@ def test_local_data_access_lists_contract_candle_summaries(fixture_root):
     assert [summary.secid for summary in summaries] == ["CRH4", "CRM4", "CRU4", "CRZ4"]
     assert all(summary.board == "RFUD" for summary in summaries)
     assert all(summary.row_count > 0 for summary in summaries)
+
+
+def test_local_data_access_lists_contract_candle_summaries_by_multiple_prefixes(
+    multi_prefix_data_root,
+):
+    summaries = LocalParquetDataAccess(multi_prefix_data_root).list_contract_candle_summaries(
+        "MOEX",
+        "futures",
+        "forts",
+        "1d",
+        secid_prefixes=["CY", "CR"],
+    )
+
+    assert [summary.secid for summary in summaries] == [
+        "CRH4",
+        "CRM4",
+        "CRU4",
+        "CRZ4",
+        "CYH3",
+        "CYM3",
+    ]
 
 
 def test_builder_uses_data_access_abstraction(fixture_root, tmp_path):

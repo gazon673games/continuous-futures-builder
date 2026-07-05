@@ -9,6 +9,7 @@ from continuous_futures_builder.contract_chain import build_contract_chain
 from continuous_futures_builder.contract_filters import filter_contracts
 from continuous_futures_builder.data_access import LocalParquetDataAccess
 from continuous_futures_builder.exceptions import ContractChainError
+from continuous_futures_builder.prefixes import infer_contract_prefix
 
 
 def _metadata(rows: list[dict]) -> pl.DataFrame:
@@ -51,6 +52,33 @@ def test_contract_filtering_by_asset_code_and_prefix(fixture_root):
 
     assert [contract.secid for contract in by_asset] == ["CRH4", "CRM4", "CRU4", "CRZ4"]
     assert [contract.secid for contract in by_prefix] == ["CRH4", "CRM4", "CRU4", "CRZ4"]
+
+
+def test_contract_filtering_by_multiple_prefixes_excludes_non_matches(multi_prefix_data_root):
+    metadata = LocalParquetDataAccess(multi_prefix_data_root).load_metadata_snapshot(
+        "MOEX", "futures", "forts", "20240101T000000Z"
+    )
+
+    contracts, _ = filter_contracts(
+        metadata,
+        query="CNY",
+        secid_prefixes=["CY", "CR"],
+    )
+
+    assert [contract.secid for contract in contracts] == [
+        "CYH3",
+        "CYM3",
+        "CRH4",
+        "CRM4",
+        "CRU4",
+        "CRZ4",
+    ]
+    assert "MYH3" not in {contract.secid for contract in contracts}
+
+
+def test_contract_prefix_inference_handles_historical_suffixes():
+    assert infer_contract_prefix("CYM5_2015") == "CY"
+    assert infer_contract_prefix("CRM2") == "CR"
 
 
 def test_include_and_exclude_secid(fixture_root):

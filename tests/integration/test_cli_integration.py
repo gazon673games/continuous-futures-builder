@@ -109,3 +109,35 @@ def test_cli_chain_build_and_validate(temp_data_root):
     assert "status: ok" in quality.output
     assert "contract_count: 4" in quality.output
     assert "roll_count: 3" in quality.output
+
+
+def test_cli_accepts_repeated_secid_prefix(multi_prefix_data_root):
+    runner = CliRunner()
+
+    chain = runner.invoke(
+        app,
+        [
+            "chain",
+            "--data-root",
+            str(multi_prefix_data_root),
+            "--exchange",
+            "MOEX",
+            "--engine",
+            "futures",
+            "--market",
+            "forts",
+            "--metadata-snapshot-ts",
+            "20240101T000000Z",
+            "--query",
+            "CNY",
+            "--secid-prefix",
+            "CY",
+            "--secid-prefix",
+            "CR",
+        ],
+    )
+
+    assert chain.exit_code == 0, chain.output
+    assert "contracts_used: CYH3, CYM3, CRH4, CRM4, CRU4, CRZ4" in chain.output
+    assert "MYH3" not in chain.output
+    assert "CYM3 -> CRH4 (CY -> CR)" in chain.output
