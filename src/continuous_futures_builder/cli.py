@@ -23,6 +23,10 @@ from continuous_futures_builder.nearest_contract import (
     NearestContractBuildConfig,
     build_nearest_contract_dataset,
 )
+from continuous_futures_builder.nearest_gap_diagnostics import (
+    diagnose_dataset_session_gaps,
+    parse_session_options,
+)
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.quality import build_quality_report
 from continuous_futures_builder.quality_gate import (
@@ -327,6 +331,7 @@ def nearest_build(
     adjustment_mode: Annotated[str, typer.Option()] = "unadjusted",
     roll_days_before_expiration: Annotated[int, typer.Option("--roll-days-before-expiration")] = 3,
     metadata_snapshot_ts: Annotated[str | None, typer.Option()] = None,
+    session: Annotated[list[str] | None, typer.Option("--session")] = None,
     overwrite: Annotated[bool, typer.Option()] = False,
     reports_root: Annotated[Path | None, typer.Option()] = None,
 ) -> None:
@@ -354,6 +359,7 @@ def nearest_build(
             adjustment_mode=adjustment_mode,
             overwrite=overwrite,
             reports_root=reports_root,
+            session_model=parse_session_options(session),
         )
         result = build_nearest_contract_dataset(config)
     except ContinuousFuturesError as exc:
@@ -364,6 +370,34 @@ def nearest_build(
         raise typer.Exit(1) from exc
 
     _print_result(result)
+
+
+@nearest_app.command("diagnose-gaps")
+def nearest_diagnose_gaps(
+    dataset_path: Annotated[Path, typer.Option()],
+    report_root: Annotated[Path, typer.Option()],
+    bar_minutes: Annotated[int, typer.Option()] = 5,
+    session: Annotated[list[str] | None, typer.Option("--session")] = None,
+    update_quality: Annotated[bool, typer.Option()] = True,
+) -> None:
+    try:
+        result, updated_files = diagnose_dataset_session_gaps(
+            dataset_path,
+            report_root,
+            bar_minutes=bar_minutes,
+            session_model=parse_session_options(session),
+            update_quality=update_quality,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _print_result(result)
+    if updated_files:
+        typer.echo("updated_files: " + ", ".join(str(path) for path in updated_files))
 
 
 @app.command()

@@ -20,6 +20,13 @@ from continuous_futures_builder.exceptions import (
     InputDataError,
 )
 from continuous_futures_builder.models import ContractChainResult, FuturesContract
+from continuous_futures_builder.nearest_gap_diagnostics import (
+    IntradaySessionModel,
+    SessionGapSummary,
+    diagnose_session_gaps,
+    session_summary_quality_fields,
+    write_session_gap_reports,
+)
 from continuous_futures_builder.prefixes import normalize_secid_prefixes
 
 NEAREST_DATASET_TYPE = "nearest_contract"
@@ -81,6 +88,7 @@ class NearestContractBuildConfig(BaseModel):
     adjustment_mode: str = ADJUSTMENT_UNADJUSTED
     overwrite: bool = False
     reports_root: Path | None = None
+    session_model: IntradaySessionModel | None = None
 
     @field_validator("data_root", "output_root", "reports_root", mode="before")
     @classmethod
@@ -140,6 +148,15 @@ class NearestContractQuality(BaseModel):
     null_active_contract_count: int
     max_gap_minutes: float | None = None
     large_gap_count: int
+    total_timestamp_gaps: int = 0
+    expected_session_break_count: int = 0
+    expected_overnight_or_calendar_break_count: int = 0
+    roll_transition_gap_count: int = 0
+    unexpected_intraday_gap_count: int = 0
+    unknown_gap_count: int = 0
+    max_unexpected_intraday_gap_minutes: float | None = None
+    top_unexpected_gaps: list[dict[str, Any]] = Field(default_factory=list)
+    session_model: dict[str, Any] | None = None
     roll_boundaries: list[dict[str, Any]] = Field(default_factory=list)
     contracts_used: list[str] = Field(default_factory=list)
     contracts_skipped: list[str] = Field(default_factory=list)
@@ -156,6 +173,9 @@ class NearestContractBuildResult(BaseModel):
     build_summary_json: Path
     roll_calendar_csv: Path
     roll_calendar_parquet: Path
+    session_gaps_csv: Path
+    session_gaps_parquet: Path
+    session_gap_summary_json: Path
     quality_json: Path
     contract_coverage_csv: Path
     contract_coverage_parquet: Path
@@ -560,6 +580,7 @@ def _build_quality(
     contracts_skipped: list[str],
     preexisting_warnings: list[str],
     contract_count: int,
+    session_gap_summary: SessionGapSummary,
 ) -> NearestContractQuality:
     warnings = list(preexisting_warnings)
     errors: list[str] = []
@@ -581,8 +602,10 @@ def _build_quality(
         errors.append(f"null active_contract rows: {null_active_contract_count}")
 
     max_gap_minutes, large_gap_count = _intraday_gap_stats(frame, config.timeframe)
-    if large_gap_count:
-        warnings.append(f"large intraday gaps: {large_gap_count}")
+    if session_gap_summary.unexpected_intraday_gaps:
+        warnings.append(f"unexpected intraday gaps: {session_gap_summary.unexpected_intraday_gaps}")
+    if session_gap_summary.unknown_gaps:
+        warnings.append(f"unknown timestamp gaps: {session_gap_summary.unknown_gaps}")
 
     for boundary in boundaries:
         if boundary.warning:
@@ -612,6 +635,7 @@ def _build_quality(
         null_active_contract_count=null_active_contract_count,
         max_gap_minutes=max_gap_minutes,
         large_gap_count=large_gap_count,
+        **session_summary_quality_fields(session_gap_summary),
         roll_boundaries=roll_boundaries,
         contracts_used=[str(contract) for contract in contracts_used],
         contracts_skipped=contracts_skipped,
@@ -727,6 +751,12 @@ def _save_artifacts(
     _write_output(frame, output_path, output_root=config.output_root, overwrite=config.overwrite)
 
     roll_calendar = _roll_calendar_frame(boundaries)
+    session_gap_result = write_session_gap_reports(
+        frame,
+        reports_dir,
+        bar_minutes=_timeframe_minutes(config.timeframe),
+        session_model=config.session_model,
+    )
     roll_calendar_csv = reports_dir / "roll_calendar.csv"
     roll_calendar_parquet = reports_dir / "roll_calendar.parquet"
     quality_json = reports_dir / "quality.json"
@@ -754,6 +784,9 @@ def _save_artifacts(
         "build_summary_json": build_summary_json,
         "roll_calendar_csv": roll_calendar_csv,
         "roll_calendar_parquet": roll_calendar_parquet,
+        "session_gaps_csv": session_gap_result.session_gaps_csv,
+        "session_gaps_parquet": session_gap_result.session_gaps_parquet,
+        "session_gap_summary_json": session_gap_result.session_gap_summary_json,
         "quality_json": quality_json,
         "contract_coverage_csv": contract_coverage_csv,
         "contract_coverage_parquet": contract_coverage_parquet,
@@ -891,6 +924,11 @@ def build_nearest_contract_dataset(
         if contract.secid not in set(contracts_used)
     ]
     contracts_skipped = [*chain_skipped, *candle_skipped, *inactive_contracts]
+    _session_gap_rows, session_gap_summary = diagnose_session_gaps(
+        frame,
+        bar_minutes=_timeframe_minutes(config.timeframe),
+        session_model=config.session_model,
+    )
     quality = _build_quality(
         frame,
         config,
@@ -898,6 +936,7 @@ def build_nearest_contract_dataset(
         contracts_skipped,
         preexisting_warnings=[*chain_warnings, *roll_warnings],
         contract_count=len(loaded_contracts),
+        session_gap_summary=session_gap_summary,
     )
     if quality.status == NEAREST_QUALITY_REJECTED:
         raise ContinuousSeriesValidationError("; ".join(quality.errors))
@@ -911,6 +950,9 @@ def build_nearest_contract_dataset(
         build_summary_json=paths["build_summary_json"],
         roll_calendar_csv=paths["roll_calendar_csv"],
         roll_calendar_parquet=paths["roll_calendar_parquet"],
+        session_gaps_csv=paths["session_gaps_csv"],
+        session_gaps_parquet=paths["session_gaps_parquet"],
+        session_gap_summary_json=paths["session_gap_summary_json"],
         quality_json=paths["quality_json"],
         contract_coverage_csv=paths["contract_coverage_csv"],
         contract_coverage_parquet=paths["contract_coverage_parquet"],

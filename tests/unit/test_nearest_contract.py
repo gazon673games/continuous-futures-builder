@@ -325,5 +325,7 @@ def test_nearest_cli_smoke_writes_dataset_and_reports(tmp_path: Path):
     reports_dir = output_root / "reports" / "nearest_contract_futures" / "CNYRUB_NEAREST_5M"
     assert (reports_dir / "build_summary.json").exists()
     assert (reports_dir / "roll_calendar.csv").exists()
+    assert (reports_dir / "session_gaps.csv").exists()
+    assert (reports_dir / "session_gap_summary.json").exists()
     assert (reports_dir / "quality.json").exists()
     assert (reports_dir / "contract_coverage.parquet").exists()

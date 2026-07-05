@@ -283,21 +283,72 @@ Artifacts:
 build_summary.json
 roll_calendar.csv
 roll_calendar.parquet
+session_gaps.csv
+session_gaps.parquet
+session_gap_summary.json
 quality.json
 contract_coverage.csv
 contract_coverage.parquet
 ```
 
 `quality.json` reports row counts, min/max timestamps, duplicate timestamps,
-null OHLC/contract counts, large intraday gaps, roll boundaries, contracts
-used, contracts skipped, and status: `ok`, `warning`, or `rejected`. Large
-intraday gaps, source-coverage gaps, and large roll price gaps are warnings;
-duplicate timestamps, null OHLC prices, null active contracts, missing
-expiration metadata, and zero-row output are rejected.
+null OHLC/contract counts, legacy large intraday gaps, session-aware gap
+counts, roll boundaries, contracts used, contracts skipped, and status: `ok`,
+`warning`, or `rejected`.
+
+Naive intraday gap counts are misleading because regular breaks between
+sessions, overnight breaks, weekends, and holidays can all look like missing
+5-minute bars. Nearest-contract diagnostics therefore use a pragmatic default
+MOEX futures session model, interpreted in the local timestamps stored in the
+dataset:
+
+```text
+main=10:00-18:45
+evening=19:00-23:50
+```
+
+Session-aware gaps are classified as:
+
+```text
+expected_session_break
+expected_overnight_or_calendar_break
+roll_transition_gap
+unexpected_intraday_gap
+unknown_gap
+```
+
+Quality status is based on duplicate timestamps, null OHLC values, null active
+contracts, zero-row output, missing required metadata, unexpected intraday
+gaps, unknown gaps, and roll/source-coverage warnings. Normal session breaks,
+overnights, weekends, and holiday-like calendar breaks do not make a dataset
+rejected.
+
+Rerun only the session-aware diagnostics for an existing saved dataset:
+
+```bash
+uv run continuous-futures nearest diagnose-gaps \
+  --dataset-path data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet \
+  --report-root data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M \
+  --bar-minutes 5
+```
+
+Override the default sessions with repeated `--session` values when needed:
+
+```bash
+uv run continuous-futures nearest diagnose-gaps \
+  --dataset-path <PARQUET> \
+  --report-root <REPORT_DIR> \
+  --bar-minutes 5 \
+  --session main=10:00-18:45 \
+  --session evening=19:00-23:50
+```
 
 Limitations: the MVP is CR-family focused, supports only unadjusted prices,
-uses a fixed calendar-days-before-expiration roll rule, and does not change the
-existing backtest quality-gate manifest.
+uses a fixed calendar-days-before-expiration roll rule, does not use an
+official holiday calendar, and does not change the existing backtest
+quality-gate manifest. Gap diagnostics do not modify prices and do not prove
+exchange completeness; they only separate likely normal market-session breaks
+from gaps that need closer inspection.
 
 ## Real Local CNY/RUB Workflow
 
