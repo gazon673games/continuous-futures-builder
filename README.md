@@ -343,6 +343,41 @@ uv run continuous-futures nearest diagnose-gaps \
   --session evening=19:00-23:50
 ```
 
+Session-aware gap diagnostics explain timestamp gaps. They do not answer
+whether a specific strategy can safely read the dataset. For the first planned
+5-minute research pass, use the decision-time audit:
+
+```bash
+uv run continuous-futures nearest audit-gaps \
+  --dataset-path data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet \
+  --session-gaps-path data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/session_gaps.parquet \
+  --report-root data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit \
+  --decision-time 13:30 \
+  --decision-tolerance-minutes 5 \
+  --sma-window-bars 42
+```
+
+The audit checks one row per trading date. A day is usable when a bar exists at
+or immediately before the decision time within tolerance, at least 42 same-day
+5-minute bars are available through that decision bar, and no unexpected or
+unknown session gap overlaps the SMA window. It writes:
+
+```text
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_summary.json
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_by_contract_month.csv
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_by_contract_month.parquet
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/decision_time_coverage.csv
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/decision_time_coverage.parquet
+data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_report.md
+```
+
+The audit recommends a conservative research start date from the later of the
+first 30 consecutive usable decision days and the first trading date after the
+last excluded contract/month period. It does not repair data, approve a dataset
+for production backtesting, use an official exchange holiday calendar, or model
+tradeability, slippage, or execution. It only evaluates close/bar availability
+for the planned 13:30 decision workflow.
+
 Limitations: the MVP is CR-family focused, supports only unadjusted prices,
 uses a fixed calendar-days-before-expiration roll rule, does not use an
 official holiday calendar, and does not change the existing backtest

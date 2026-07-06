@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import time
 from pathlib import Path
 from typing import Annotated
 
@@ -9,6 +10,10 @@ import typer
 
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.exceptions import ContinuousFuturesError
+from continuous_futures_builder.intraday_gap_audit import (
+    IntradayGapAuditConfig,
+    write_gap_audit_reports,
+)
 from continuous_futures_builder.investigation import (
     CANDIDATE_COLUMNS,
     CANDLE_WINDOW_COLUMNS,
@@ -398,6 +403,39 @@ def nearest_diagnose_gaps(
     _print_result(result)
     if updated_files:
         typer.echo("updated_files: " + ", ".join(str(path) for path in updated_files))
+
+
+@nearest_app.command("audit-gaps")
+def nearest_audit_gaps(
+    dataset_path: Annotated[Path, typer.Option()],
+    report_root: Annotated[Path, typer.Option()],
+    session_gaps_path: Annotated[Path | None, typer.Option()] = None,
+    decision_time: Annotated[str, typer.Option()] = "13:30",
+    decision_tolerance_minutes: Annotated[int, typer.Option()] = 5,
+    sma_window_bars: Annotated[int, typer.Option()] = 42,
+    bar_minutes: Annotated[int, typer.Option()] = 5,
+    consecutive_usable_days: Annotated[int, typer.Option()] = 30,
+) -> None:
+    try:
+        config = IntradayGapAuditConfig(
+            dataset_path=dataset_path,
+            session_gaps_path=session_gaps_path,
+            report_root=report_root,
+            decision_time=time.fromisoformat(decision_time),
+            decision_tolerance_minutes=decision_tolerance_minutes,
+            sma_window_bars=sma_window_bars,
+            bar_minutes=bar_minutes,
+            consecutive_usable_days=consecutive_usable_days,
+        )
+        result = write_gap_audit_reports(config)
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _print_result(result)
 
 
 @app.command()
