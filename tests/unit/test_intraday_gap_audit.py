@@ -240,3 +240,48 @@ def test_audit_gaps_cli_smoke_writes_expected_files(tmp_path: Path):
     summary = json.loads((report_root / "gap_audit_summary.json").read_text(encoding="utf-8"))
     assert summary["total_trading_days"] == 1
     assert summary["usable_decision_days"] == 1
+
+
+def test_approve_audit_cli_writes_formal_quality_approval(tmp_path: Path):
+    dataset_path = tmp_path / "dataset.parquet"
+    audit_summary_path = tmp_path / "gap_audit_summary.json"
+    approval_path = tmp_path / "quality_approval.json"
+    _dataset(_rows_for_day(date(2024, 3, 11))).write_parquet(dataset_path)
+    audit_summary_path.write_text(
+        json.dumps(
+            {
+                "continuous_symbol": "CNYRUB_NEAREST_5M",
+                "timeframe": "5m",
+                "dataset_path": str(dataset_path),
+                "decision_time": "13:30",
+                "sma_window_bars": 42,
+                "usable_decision_day_pct": 1.0,
+                "recommended_start_date": "2024-03-11",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "nearest",
+            "approve-audit",
+            "--gap-audit-summary-path",
+            str(audit_summary_path),
+            "--dataset-path",
+            str(dataset_path),
+            "--output-path",
+            str(approval_path),
+            "--min-usable-decision-day-pct",
+            "0.95",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    assert approval["approval_status"] == "approved"
+    assert approval["dataset_sha256"]
+    assert approval["gap_audit_sha256"]
+    assert approval["allowed_decision_times"] == ["13:30"]
+    assert approval["allowed_sma_window_bars"] == [42]

@@ -371,10 +371,66 @@ data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/decision_time_
 data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_report.md
 ```
 
-The audit recommends a conservative research start date from the later of the
+Convert a passing audit into the formal approval artifact consumed by `backtest_engine`:
+
+```bash
+uv run continuous-futures nearest approve-audit \
+  --gap-audit-summary-path data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/gap_audit_summary.json \
+  --dataset-path data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet \
+  --output-path data/reports/nearest_contract_futures/CNYRUB_NEAREST_5M/gap_audit/quality_approval.json \
+  --min-usable-decision-day-pct 0.95 \
+  --allowed-decision-time 13:30 \
+  --allowed-sma-window-bars 42
+```
+
+The approval stores status, dataset hash, audit hash, approved start date, allowed decision times,
+allowed SMA windows, and rejection reasons if thresholds are not met. The command exits non-zero
+when the approval is rejected.
+
+Build artifacts consumed by `backtest_engine`:
+
+```bash
+uv run continuous-futures prepare-backtest-artifacts \
+  --metadata-snapshot-path ../moex_iss_adapter/data/normalized/metadata/exchange=MOEX/engine=futures/market=forts/securities/snapshot_ts=<SNAPSHOT_TS> \
+  --observed-dataset-path ../continuous_futures_builder/data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet \
+  --derived-root ../continuous_futures_builder/data/derived \
+  --reports-root ../continuous_futures_builder/data/reports \
+  --output-dir ../backtest_engine/configs/generated \
+  --symbol-prefix CR \
+  --symbol-prefix Si
+```
+
+The one command above writes the registry, observed calendar, registry audit, calendar audit,
+data catalog, and `backtest_artifacts_manifest.json`. The lower-level commands are available when
+you need to rebuild one artifact:
+
+```bash
+uv run continuous-futures build-instrument-registry \
+  --metadata-snapshot-path ../moex_iss_adapter/data/normalized/metadata/exchange=MOEX/engine=futures/market=forts/securities/snapshot_ts=<SNAPSHOT_TS> \
+  --output-path ../backtest_engine/configs/generated/moex_forts_instrument_specs.json \
+  --symbol-prefix CR \
+  --symbol-prefix Si
+
+uv run continuous-futures build-observed-calendar \
+  --dataset-path data/derived/nearest_contract_futures/exchange=MOEX/engine=futures/market=forts/continuous_symbol=CNYRUB_NEAREST_5M/timeframe=5m/adjustment_mode=unadjusted/part-000.parquet \
+  --output-path ../backtest_engine/configs/generated/cnyrub_nearest_5m_observed_calendar.json
+
+uv run continuous-futures build-data-catalog \
+  --derived-root ../continuous_futures_builder/data/derived \
+  --reports-root ../continuous_futures_builder/data/reports \
+  --output-path ../backtest_engine/configs/generated/data_catalog.json \
+  --instrument-registry-path configs/generated/moex_forts_instrument_specs.json \
+  --calendar-path configs/generated/cnyrub_nearest_5m_observed_calendar.json
+```
+
+The instrument registry is built from local MOEX normalized metadata fields such as `minstep`,
+`stepprice`, `lotvolume`, and `initialmargin`. The calendar is an observed calendar inferred from
+dataset timestamps, not an official exchange holiday source.
+
+The audit report recommends a conservative research start date from the later of the
 first 30 consecutive usable decision days and the first trading date after the
-last excluded contract/month period. It does not repair data, approve a dataset
-for production backtesting, use an official exchange holiday calendar, or model
+last excluded contract/month period. The report itself does not repair data,
+approve a dataset for production backtesting, use an official exchange holiday calendar, or model
 tradeability, slippage, or execution. It only evaluates close/bar availability
 for the planned 13:30 decision workflow.
 

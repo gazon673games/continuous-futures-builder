@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import time
+from datetime import date, time
 from pathlib import Path
 from typing import Annotated
 
@@ -23,6 +23,14 @@ from continuous_futures_builder.investigation import (
 from continuous_futures_builder.investigation import (
     investigate_roll as build_roll_investigation,
 )
+from continuous_futures_builder.market_registry import (
+    audit_instrument_registry,
+    audit_session_calendar,
+    build_dataset_catalog,
+    build_moex_instrument_registry,
+    build_observed_session_calendar,
+    prepare_backtest_artifacts,
+)
 from continuous_futures_builder.models import ContractChainResult
 from continuous_futures_builder.nearest_contract import (
     NearestContractBuildConfig,
@@ -34,6 +42,7 @@ from continuous_futures_builder.nearest_gap_diagnostics import (
 )
 from continuous_futures_builder.prefixes import infer_contract_prefix, normalize_secid_prefixes
 from continuous_futures_builder.quality import build_quality_report
+from continuous_futures_builder.quality_approval import approve_gap_audit
 from continuous_futures_builder.quality_gate import (
     QualityGateResult,
     evaluate_quality_gate,
@@ -126,6 +135,204 @@ def _print_source_summary(title: str, summary: object) -> None:
     typer.echo(f"{title}:")
     for key in ("secid", "board", "row_count", "min_ts", "max_ts", "close_used_ts", "close_used"):
         typer.echo(f"{key}: {_format_table_value(data.get(key))}")
+
+
+@app.command("build-instrument-registry")
+def build_instrument_registry_command(
+    metadata_snapshot_path: Annotated[
+        Path,
+        typer.Option(
+            help="Path to normalized MOEX futures metadata snapshot parquet or directory."
+        ),
+    ],
+    output_path: Annotated[Path, typer.Option(help="Output JSON instrument registry path.")],
+    symbol_prefix: Annotated[
+        list[str] | None,
+        typer.Option("--symbol-prefix", help="Optional SECID prefix filter. Repeatable."),
+    ] = None,
+) -> None:
+    """Build a MOEX FORTS instrument spec registry from local metadata."""
+
+    try:
+        result = build_moex_instrument_registry(
+            metadata_snapshot_path=metadata_snapshot_path,
+            output_path=output_path,
+            symbol_prefixes=symbol_prefix,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_result(result)
+
+
+@app.command("build-observed-calendar")
+def build_observed_calendar_command(
+    dataset_path: Annotated[Path, typer.Option(help="Dataset parquet or directory to observe.")],
+    output_path: Annotated[Path, typer.Option(help="Output JSON session calendar path.")],
+    main_session_start: Annotated[str, typer.Option(help="Main session start HH:MM.")] = "10:00",
+    main_session_end: Annotated[str, typer.Option(help="Main session end HH:MM.")] = "18:50",
+    evening_session_start: Annotated[
+        str | None,
+        typer.Option(help="Evening session start HH:MM, or omit."),
+    ] = "19:00",
+    evening_session_end: Annotated[
+        str | None,
+        typer.Option(help="Evening session end HH:MM, or omit."),
+    ] = "23:50",
+    short_day_bar_ratio: Annotated[
+        float,
+        typer.Option(help="Mark days below this fraction of median main-session bars as short."),
+    ] = 0.8,
+) -> None:
+    """Build an observed session calendar from local dataset timestamps."""
+
+    try:
+        result = build_observed_session_calendar(
+            dataset_path=dataset_path,
+            output_path=output_path,
+            main_session_start=time.fromisoformat(main_session_start),
+            main_session_end=time.fromisoformat(main_session_end),
+            evening_session_start=(
+                time.fromisoformat(evening_session_start)
+                if evening_session_start is not None
+                else None
+            ),
+            evening_session_end=(
+                time.fromisoformat(evening_session_end) if evening_session_end is not None else None
+            ),
+            short_day_bar_ratio=short_day_bar_ratio,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_result(result)
+
+
+@app.command("audit-instrument-registry")
+def audit_instrument_registry_command(
+    registry_path: Annotated[Path, typer.Option(help="Input JSON instrument registry path.")],
+    output_path: Annotated[Path, typer.Option(help="Output JSON registry audit path.")],
+) -> None:
+    """Audit an instrument spec registry before using it in backtests."""
+
+    try:
+        result = audit_instrument_registry(
+            registry_path=registry_path,
+            output_path=output_path,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_result(result)
+    if result.audit_status != "approved":
+        raise typer.Exit(1)
+
+
+@app.command("audit-calendar")
+def audit_calendar_command(
+    calendar_path: Annotated[Path, typer.Option(help="Input JSON session calendar path.")],
+    output_path: Annotated[Path, typer.Option(help="Output JSON calendar audit path.")],
+) -> None:
+    """Audit a session calendar artifact before using it in backtests."""
+
+    try:
+        result = audit_session_calendar(
+            calendar_path=calendar_path,
+            output_path=output_path,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_result(result)
+    if result.audit_status != "approved":
+        raise typer.Exit(1)
+
+
+@app.command("build-data-catalog")
+def build_data_catalog_command(
+    derived_root: Annotated[Path, typer.Option(help="Derived datasets root.")],
+    output_path: Annotated[Path, typer.Option(help="Output JSON data catalog path.")],
+    reports_root: Annotated[Path | None, typer.Option(help="Reports root.")] = None,
+    instrument_registry_path: Annotated[
+        Path | None,
+        typer.Option(help="Optional default instrument registry linked into catalog entries."),
+    ] = None,
+    instrument_registry_audit_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Optional default instrument registry audit linked into catalog entries."
+        ),
+    ] = None,
+    calendar_path: Annotated[
+        Path | None,
+        typer.Option(help="Optional default calendar linked into catalog entries."),
+    ] = None,
+    calendar_audit_path: Annotated[
+        Path | None,
+        typer.Option(help="Optional default calendar audit linked into catalog entries."),
+    ] = None,
+) -> None:
+    """Index local derived datasets into a reproducible data catalog."""
+
+    try:
+        result = build_dataset_catalog(
+            derived_root=derived_root,
+            reports_root=reports_root,
+            output_path=output_path,
+            instrument_registry_path=instrument_registry_path,
+            calendar_path=calendar_path,
+            instrument_registry_audit_path=instrument_registry_audit_path,
+            calendar_audit_path=calendar_audit_path,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_result(result)
+
+
+@app.command("prepare-backtest-artifacts")
+def prepare_backtest_artifacts_command(
+    metadata_snapshot_path: Annotated[
+        Path,
+        typer.Option(
+            help="Path to normalized MOEX futures metadata snapshot parquet or directory."
+        ),
+    ],
+    observed_dataset_path: Annotated[
+        Path,
+        typer.Option(help="Dataset used to infer observed session calendar."),
+    ],
+    derived_root: Annotated[Path, typer.Option(help="Derived datasets root for catalog.")],
+    output_dir: Annotated[Path, typer.Option(help="Output artifact directory.")],
+    reports_root: Annotated[
+        Path | None, typer.Option(help="Reports root for quality links.")
+    ] = None,
+    symbol_prefix: Annotated[
+        list[str] | None,
+        typer.Option("--symbol-prefix", help="SECID prefix for registry. Repeatable."),
+    ] = None,
+) -> None:
+    """Build registry, calendar, audits, catalog, and one preparation manifest."""
+
+    try:
+        manifest = prepare_backtest_artifacts(
+            metadata_snapshot_path=metadata_snapshot_path,
+            observed_dataset_path=observed_dataset_path,
+            derived_root=derived_root,
+            reports_root=reports_root,
+            output_dir=output_dir,
+            symbol_prefixes=symbol_prefix,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"output_dir: {output_dir}")
+    typer.echo(f"registry_audit_status: {manifest['registry_audit']['audit_status']}")
+    typer.echo(f"calendar_audit_status: {manifest['calendar_audit']['audit_status']}")
+    typer.echo(f"catalog_item_count: {manifest['catalog']['item_count']}")
 
 
 def _print_chain_diagnostics(
@@ -436,6 +643,46 @@ def nearest_audit_gaps(
         raise typer.Exit(1) from exc
 
     _print_result(result)
+
+
+@nearest_app.command("approve-audit")
+def nearest_approve_audit(
+    gap_audit_summary_path: Annotated[Path, typer.Option()],
+    output_path: Annotated[Path, typer.Option()],
+    dataset_path: Annotated[Path | None, typer.Option()] = None,
+    min_usable_decision_day_pct: Annotated[float, typer.Option()] = 0.95,
+    approved_from_date: Annotated[str | None, typer.Option()] = None,
+    allowed_decision_time: Annotated[
+        list[str] | None,
+        typer.Option("--allowed-decision-time"),
+    ] = None,
+    allowed_sma_window_bars: Annotated[
+        list[int] | None,
+        typer.Option("--allowed-sma-window-bars"),
+    ] = None,
+) -> None:
+    try:
+        result = approve_gap_audit(
+            gap_audit_summary_path=gap_audit_summary_path,
+            output_path=output_path,
+            dataset_path=dataset_path,
+            min_usable_decision_day_pct=min_usable_decision_day_pct,
+            approved_from_date=(
+                date.fromisoformat(approved_from_date) if approved_from_date is not None else None
+            ),
+            allowed_decision_times=allowed_decision_time,
+            allowed_sma_window_bars=allowed_sma_window_bars,
+        )
+    except ContinuousFuturesError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _print_result(result)
+    if result.approval_status != "approved":
+        raise typer.Exit(1)
 
 
 @app.command()
