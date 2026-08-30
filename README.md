@@ -610,6 +610,7 @@ uv run continuous-futures quality-gate \
 The gate exits `0` only when every dataset is `approved`; `rejected` and
 `split_required` both exit `1`. See
 `docs/architecture/data_quality_gate.md`.
+Saved manifests bind every decision to the exact Parquet content with `dataset_sha256`.
 
 Detailed roll diagnostics:
 

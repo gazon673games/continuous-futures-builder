@@ -59,6 +59,7 @@ class QualityGateResult(BaseModel):
 
     dataset: str | None
     path: Path
+    dataset_sha256: str
     status: QualityGateStatus
     reason_count: int
     reasons: list[str] = Field(default_factory=list)

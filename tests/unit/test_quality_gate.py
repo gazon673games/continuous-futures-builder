@@ -201,6 +201,7 @@ def test_quality_gate_manifest_marks_approved_for_research(temp_data_root, tmp_p
         True,
         False,
     ]
+    assert all(len(dataset["dataset_sha256"]) == 64 for dataset in manifest["datasets"])
 
 
 def test_quality_gate_cli_exit_codes(temp_data_root, tmp_path):

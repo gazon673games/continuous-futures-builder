@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -117,12 +118,21 @@ def evaluate_quality_gate(
     return QualityGateResult(
         dataset=quality_report.continuous_symbol,
         path=target,
+        dataset_sha256=_file_sha256(target),
         status=status,
         reason_count=len(reasons),
         reasons=reasons,
         metrics=metrics,
         approved_for_research=status == "approved",
     )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def save_quality_gate_manifest(

@@ -82,9 +82,10 @@ uv run continuous-futures quality-gate \
   --output data/reports/continuous_futures/quality_gate_manifest.json
 ```
 
-The manifest includes each dataset's status, reasons, metrics, and
-`approved_for_research` flag. Generated reports under `data/` should not be
-committed.
+The manifest includes each dataset's status, reasons, metrics,
+`approved_for_research` flag, and `dataset_sha256`. Consumers must verify the hash so a different
+file, or modified content at the same path, cannot inherit an earlier approval. Generated reports
+under `data/` should not be committed.
 
 ## Expected Local Outcomes
 
