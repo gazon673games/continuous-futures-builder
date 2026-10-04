@@ -6,6 +6,7 @@ import polars as pl
 
 from continuous_futures_builder._data_access_protocol import (
     _read_parquet_parts,
+    _scan_parquet_parts,
 )
 from continuous_futures_builder.models import ContractCandleSummary
 from continuous_futures_builder.prefixes import matches_any_secid_prefix, normalize_secid_prefixes
@@ -147,15 +148,22 @@ class LocalParquetDataAccess:
                 timeframe_path = symbol_path / f"timeframe={timeframe}"
                 if not timeframe_path.exists():
                     continue
-                frame = _read_parquet_parts(timeframe_path, f"candles {secid}")
+                frame = _scan_parquet_parts(timeframe_path, f"candles {secid}")
                 validate_candle_schema(frame, str(timeframe_path))
+                stats = (
+                    frame.select(
+                        pl.len().alias("row_count"),
+                        pl.col("ts").min().alias("min_ts"),
+                        pl.col("ts").max().alias("max_ts"),
+                    )
+                    .collect()
+                    .row(0, named=True)
+                )
                 summaries.append(
                     ContractCandleSummary(
                         secid=secid,
                         board=board,
-                        row_count=frame.height,
-                        min_ts=frame.get_column("ts").min(),
-                        max_ts=frame.get_column("ts").max(),
+                        **stats,
                     )
                 )
         return sorted(summaries, key=lambda item: (item.secid, item.board))

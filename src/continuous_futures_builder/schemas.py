@@ -11,13 +11,18 @@ from continuous_futures_builder.constants import (
 from continuous_futures_builder.exceptions import ContinuousSeriesValidationError, InputDataError
 
 
-def require_columns(frame: pl.DataFrame, required: tuple[str, ...], context: str) -> None:
-    missing = [column for column in required if column not in frame.columns]
+def require_columns(
+    frame: pl.DataFrame | pl.LazyFrame, required: tuple[str, ...], context: str
+) -> None:
+    columns = frame.collect_schema().names()
+    missing = [column for column in required if column not in columns]
     if missing:
         raise InputDataError(f"{context} is missing required columns: {', '.join(missing)}")
 
 
-def validate_candle_schema(frame: pl.DataFrame, context: str = "candle data") -> None:
+def validate_candle_schema(
+    frame: pl.DataFrame | pl.LazyFrame, context: str = "candle data"
+) -> None:
     require_columns(frame, INPUT_CANDLE_COLUMNS, context)
 
 

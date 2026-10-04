@@ -48,10 +48,14 @@ class ContinuousFuturesDataAccess(Protocol):
 
 
 def _read_parquet_parts(directory: Path, context: str) -> pl.DataFrame:
+    return _scan_parquet_parts(directory, context).collect()
+
+
+def _scan_parquet_parts(directory: Path, context: str) -> pl.LazyFrame:
     files = sorted(directory.glob("*.parquet"))
     if not files:
         raise InputDataError(f"No Parquet files found for {context}: {directory}")
-    frames = [pl.read_parquet(file) for file in files]
+    frames = [pl.scan_parquet(file) for file in files]
     if len(frames) == 1:
         return frames[0]
     return pl.concat(frames, how="diagonal_relaxed")
