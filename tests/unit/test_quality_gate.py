@@ -105,13 +105,23 @@ def _split_by_roll_gap_path(tmp_path: Path) -> Path:
     )
 
 
-def test_quality_gate_approves_fixture_dataset(temp_data_root):
-    result = evaluate_quality_gate(_build_fixture_output(temp_data_root))
+def test_quality_gate_approves_fixture_dataset(temp_data_root, monkeypatch):
+    output_path = _build_fixture_output(temp_data_root)
+    reads = []
+    read_parquet = pl.read_parquet
+
+    def record_read(path, **kwargs):
+        reads.append(path)
+        return read_parquet(path, **kwargs)
+
+    monkeypatch.setattr(pl, "read_parquet", record_read)
+    result = evaluate_quality_gate(output_path)
 
     assert result.status == "approved"
     assert result.approved_for_research is True
     assert result.reason_count == 0
     assert result.metrics.validation_status == "ok"
+    assert reads == [output_path]
 
 
 def test_quality_gate_rejects_duplicate_timestamps(temp_data_root, tmp_path):

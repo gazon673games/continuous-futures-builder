@@ -86,7 +86,7 @@ def investigate_roll(
         to_contract=to_contract,
     )
     roll_report_row = _matching_roll_report_row(
-        target_path,
+        continuous,
         roll_date=target_roll_date,
         from_contract=from_contract,
         to_contract=to_contract,

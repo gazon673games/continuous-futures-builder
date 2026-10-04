@@ -61,7 +61,11 @@ def _rows_by_contract(frame: pl.DataFrame) -> dict[str, int]:
 
 
 def build_roll_report(path: str | Path) -> list[RollReportRow]:
-    frame = pl.read_parquet(path).sort("ts")
+    return _roll_report_from_frame(pl.read_parquet(path))
+
+
+def _roll_report_from_frame(frame: pl.DataFrame) -> list[RollReportRow]:
+    frame = frame.sort("ts")
     if frame.height < 2 or "active_contract" not in frame.columns:
         return []
 
@@ -165,12 +169,13 @@ def roll_report_frame(rows: list[RollReportRow]) -> pl.DataFrame:
 
 
 def save_roll_diagnostics(path: str | Path, output_dir: str | Path) -> RollReportSaveResult:
-    from continuous_futures_builder.quality import build_quality_report
+    from continuous_futures_builder.quality import _quality_report_from_frame
 
     target_dir = Path(output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    rows = build_roll_report(path)
+    source_frame = pl.read_parquet(path)
+    rows = _roll_report_from_frame(source_frame)
     frame = roll_report_frame(rows)
     parquet_path = target_dir / "roll_report.parquet"
     csv_path = target_dir / "roll_report.csv"
@@ -178,7 +183,7 @@ def save_roll_diagnostics(path: str | Path, output_dir: str | Path) -> RollRepor
 
     frame.write_parquet(parquet_path)
     frame.write_csv(csv_path)
-    quality_report = build_quality_report(path)
+    quality_report = _quality_report_from_frame(Path(path), source_frame, rows)
     json_path.write_text(
         json.dumps(quality_report.model_dump(mode="json"), indent=2),
         encoding="utf-8",

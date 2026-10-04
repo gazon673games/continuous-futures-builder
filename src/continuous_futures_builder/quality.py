@@ -16,7 +16,7 @@ from continuous_futures_builder.models import (
     RollReportRow,
 )
 from continuous_futures_builder.prefixes import infer_contract_prefix
-from continuous_futures_builder.roll_report import build_roll_report
+from continuous_futures_builder.roll_report import _roll_report_from_frame
 
 LARGE_TRANSITION_GAP_PERCENT = 5.0
 
@@ -127,6 +127,12 @@ def _adjustment_factor_min_max(frame: pl.DataFrame) -> tuple[float | None, float
 def build_quality_report(path: str | Path) -> ContinuousFuturesQualityReport:
     target = Path(path)
     frame = pl.read_parquet(target)
+    return _quality_report_from_frame(target, frame, _roll_report_from_frame(frame))
+
+
+def _quality_report_from_frame(
+    target: Path, frame: pl.DataFrame, roll_report: list[RollReportRow]
+) -> ContinuousFuturesQualityReport:
     warnings: list[str] = []
 
     missing = [column for column in OUTPUT_COLUMNS if column not in frame.columns]
@@ -166,7 +172,6 @@ def build_quality_report(path: str | Path) -> ContinuousFuturesQualityReport:
         warnings.append(f"rows with null OHLC price: {null_price_count}")
 
     factor_min, factor_max = _adjustment_factor_min_max(frame)
-    roll_report = build_roll_report(target)
     max_gap_row = _max_abs_roll_gap_row(roll_report)
     roll_dates = [row.roll_date for row in roll_report if row.roll_date is not None]
     contracts_used = _contracts_used(frame)

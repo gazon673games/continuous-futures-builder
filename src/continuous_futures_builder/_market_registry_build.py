@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import date, time
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from continuous_futures_builder._market_registry_helpers import (
     _as_datetime,
     _file_content_sha256,
-    _median,
     _optional_date,
     _optional_float,
     _parse_raw_metadata,
@@ -110,19 +110,20 @@ def build_observed_session_calendar(
     if not timestamps:
         raise ContinuousFuturesError("dataset is empty")
 
-    dates = sorted({value.date() for value in timestamps})
+    observed_dates = {value.date() for value in timestamps}
+    dates = sorted(observed_dates)
     trading_dates = [value.isoformat() for value in dates]
     holiday_dates = [
         value.isoformat()
         for value in _weekday_dates_between(dates[0], dates[-1])
-        if value not in set(dates)
+        if value not in observed_dates
     ]
     main_counts: dict[date, int] = {value: 0 for value in dates}
     for ts in timestamps:
         if _time_in_range(ts.time(), main_session_start, main_session_end):
             main_counts[ts.date()] += 1
     positive_counts = [value for value in main_counts.values() if value > 0]
-    expected_count = int(_median(positive_counts)) if positive_counts else 0
+    expected_count = int(median(positive_counts)) if positive_counts else 0
     short_threshold = expected_count * short_day_bar_ratio
     short_days = [
         value.isoformat()

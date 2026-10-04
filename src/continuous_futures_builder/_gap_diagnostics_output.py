@@ -52,6 +52,12 @@ def write_session_gap_reports(
         bar_minutes=bar_minutes,
         session_model=session_model,
     )
+    return _write_session_gap_reports(rows, summary, report_root)
+
+
+def _write_session_gap_reports(
+    rows: list[SessionGapRow], summary: SessionGapSummary, report_root: str | Path
+) -> SessionGapDiagnosticsResult:
     target_root = Path(report_root)
     target_root.mkdir(parents=True, exist_ok=True)
     gaps_csv = target_root / "session_gaps.csv"

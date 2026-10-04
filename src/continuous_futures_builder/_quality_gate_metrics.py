@@ -12,8 +12,9 @@ from continuous_futures_builder._quality_gate_core import (
     _max_family_transition_gap_pct,
     _validation_status,
 )
-from continuous_futures_builder.quality import build_quality_report
-from continuous_futures_builder.roll_report import build_roll_report
+from continuous_futures_builder.models import ContinuousFuturesQualityReport, RollReportRow
+from continuous_futures_builder.quality import _quality_report_from_frame
+from continuous_futures_builder.roll_report import _roll_report_from_frame
 
 
 def _max_roll_timestamp_gap(frame: pl.DataFrame) -> tuple[int | None, object, list[str]]:
@@ -54,9 +55,17 @@ def _max_roll_timestamp_gap(frame: pl.DataFrame) -> tuple[int | None, object, li
 def build_quality_gate_metrics(path: str | Path) -> QualityGateMetrics:
     target = Path(path)
     frame = pl.read_parquet(target)
-    validation_status, validation_error = _validation_status(target)
-    quality_report = build_quality_report(target)
-    roll_rows = build_roll_report(target)
+    roll_rows = _roll_report_from_frame(frame)
+    quality_report = _quality_report_from_frame(target, frame, roll_rows)
+    return _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
+
+
+def _quality_gate_metrics_from_frame(
+    frame: pl.DataFrame,
+    quality_report: ContinuousFuturesQualityReport,
+    roll_rows: list[RollReportRow],
+) -> QualityGateMetrics:
+    validation_status, validation_error = _validation_status(frame)
     max_roll_gap_pct, max_roll_gap_pct_date, max_roll_gap_pct_contracts = _max_abs_roll_gap_pct_row(
         roll_rows
     )

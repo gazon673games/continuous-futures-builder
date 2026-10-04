@@ -13,7 +13,6 @@ from continuous_futures_builder._nearest_contract_models import (
     _datetime_like,
 )
 from continuous_futures_builder._nearest_contract_rolls import (
-    _frame_ts_min_max,
     _minutes_between,
     _price_gap_pct,
     _roll_warning,
@@ -42,15 +41,14 @@ def _build_roll_calendar(
     if not contracts:
         raise ContractChainError("Nearest-contract chain is empty")
 
-    all_max_ts = [
-        _datetime_like(max_ts)
-        for frame in candles_by_contract.values()
-        for _, max_ts in [_frame_ts_min_max(frame)]
-        if max_ts is not None
-    ]
-    if not all_max_ts:
+    latest_dates = []
+    for frame in candles_by_contract.values():
+        max_ts = frame.get_column("ts").max() if frame.height else None
+        if max_ts is not None:
+            latest_dates.append(_date_from_value(_datetime_like(max_ts)))
+    if not latest_dates:
         raise InputDataError("No candle rows found for nearest-contract chain")
-    global_max_date = max(_date_from_value(value) for value in all_max_ts)
+    global_max_date = max(latest_dates)
 
     active_contracts = [contracts[0]]
     boundaries: list[NearestRollBoundary] = []

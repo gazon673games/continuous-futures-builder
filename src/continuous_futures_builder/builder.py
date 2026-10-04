@@ -114,7 +114,7 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             if _norm(contract.secid) not in used_contracts
             and _norm(contract.secid) not in pruned_keys
         ]
-        all_pruned_contracts = [*pruned_contracts, *inactive_contracts]
+        pruned_contracts.extend(inactive_contracts)
         prefixes_used = []
         for contract in contracts_used:
             prefix = infer_contract_prefix(contract, prefixes)
@@ -128,12 +128,12 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             end_ts=frame.get_column("ts").max(),
             contracts_in_chain=len(chain.contracts),
             contracts_used=contracts_used,
-            contracts_pruned=len(all_pruned_contracts),
-            pruned_contracts=[contract.secid or "<unknown>" for contract in all_pruned_contracts],
-            pruning_reasons=[contract.reason for contract in all_pruned_contracts],
+            contracts_pruned=len(pruned_contracts),
+            pruned_contracts=[contract.secid or "<unknown>" for contract in pruned_contracts],
+            pruning_reasons=[contract.reason for contract in pruned_contracts],
             empty_active_segments=[
                 contract.secid or "<unknown>"
-                for contract in all_pruned_contracts
+                for contract in pruned_contracts
                 if contract.category == "empty_active_segment"
             ],
             roll_count=int(frame.get_column("roll_flag").sum()),

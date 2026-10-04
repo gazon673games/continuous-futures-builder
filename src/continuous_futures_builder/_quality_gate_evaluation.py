@@ -5,6 +5,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import polars as pl
+
 from continuous_futures_builder._quality_gate_core import (
     QualityGateManifest,
     QualityGatePolicy,
@@ -12,9 +14,10 @@ from continuous_futures_builder._quality_gate_core import (
     QualityGateStatus,
 )
 from continuous_futures_builder._quality_gate_metrics import (
-    build_quality_gate_metrics,
+    _quality_gate_metrics_from_frame,
 )
-from continuous_futures_builder.quality import build_quality_report
+from continuous_futures_builder.quality import _quality_report_from_frame
+from continuous_futures_builder.roll_report import _roll_report_from_frame
 
 
 def evaluate_quality_gate(
@@ -23,8 +26,10 @@ def evaluate_quality_gate(
 ) -> QualityGateResult:
     target = Path(path)
     effective_policy = policy or QualityGatePolicy()
-    metrics = build_quality_gate_metrics(target)
-    quality_report = build_quality_report(target)
+    frame = pl.read_parquet(target)
+    roll_rows = _roll_report_from_frame(frame)
+    quality_report = _quality_report_from_frame(target, frame, roll_rows)
+    metrics = _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
 
     rejected_reasons: list[str] = []
     split_reasons: list[str] = []

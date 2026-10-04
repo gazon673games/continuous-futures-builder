@@ -55,13 +55,14 @@ def build_nearest_contract_dataset(
     )
     frame = _stitch_nearest_contracts(config, active_contracts, boundaries, candles_by_contract)
     contracts_used = frame.get_column("active_contract").unique(maintain_order=True).to_list()
+    used_contracts = set(contracts_used)
     inactive_contracts = [
         f"{contract.secid}: not active before available data ends"
         for contract in loaded_contracts
-        if contract.secid not in set(contracts_used)
+        if contract.secid not in used_contracts
     ]
     contracts_skipped = [*chain_skipped, *candle_skipped, *inactive_contracts]
-    _session_gap_rows, session_gap_summary = diagnose_session_gaps(
+    session_gap_rows, session_gap_summary = diagnose_session_gaps(
         frame,
         bar_minutes=_timeframe_minutes(config.timeframe),
         session_model=config.session_model,
@@ -79,7 +80,16 @@ def build_nearest_contract_dataset(
         raise ContinuousSeriesValidationError("; ".join(quality.errors))
 
     coverage = _coverage_frame(loaded_contracts, frame, candles_by_contract, contracts_skipped)
-    paths = _save_artifacts(frame, config, snapshot_ts, quality, boundaries, coverage)
+    paths = _save_artifacts(
+        frame,
+        config,
+        snapshot_ts,
+        quality,
+        boundaries,
+        coverage,
+        session_gap_rows,
+        session_gap_summary,
+    )
 
     return NearestContractBuildResult(
         output_path=paths["output_path"],

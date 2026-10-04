@@ -56,7 +56,7 @@ def test_roll_report_detects_family_transition(multi_prefix_data_root):
     assert family_rows[0].roll_gap == 4.0
 
 
-def test_save_roll_diagnostics_writes_artifacts(temp_data_root, tmp_path):
+def test_save_roll_diagnostics_writes_artifacts(temp_data_root, tmp_path, monkeypatch):
     result = ContinuousFuturesBuilder(temp_data_root).build(
         metadata_snapshot_ts="20240101T000000Z",
         query="CR",
@@ -66,9 +66,18 @@ def test_save_roll_diagnostics_writes_artifacts(temp_data_root, tmp_path):
     )
 
     assert result.output_path is not None
+    reads = []
+    read_parquet = pl.read_parquet
+
+    def record_read(path, **kwargs):
+        reads.append(path)
+        return read_parquet(path, **kwargs)
+
+    monkeypatch.setattr(pl, "read_parquet", record_read)
     save_result = save_roll_diagnostics(result.output_path, tmp_path / "reports")
 
     assert save_result.roll_report_csv.exists()
     assert save_result.roll_report_parquet.exists()
     assert save_result.quality_summary_json.exists()
+    assert reads == [result.output_path]
     assert pl.read_parquet(save_result.roll_report_parquet).height == 3

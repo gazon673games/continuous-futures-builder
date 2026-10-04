@@ -144,7 +144,7 @@ def _load_or_compute_session_gaps(
 
 def _rows_by_trading_date(dataset: pl.DataFrame) -> dict[date, list[dict[str, Any]]]:
     grouped: dict[date, list[dict[str, Any]]] = {}
-    for row in dataset.sort("ts").iter_rows(named=True):
+    for row in dataset.select("ts", "active_contract").sort("ts").iter_rows(named=True):
         trading_date = _as_datetime(row["ts"]).date()
         grouped.setdefault(trading_date, []).append(row)
     return grouped

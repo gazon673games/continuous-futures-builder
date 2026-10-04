@@ -170,16 +170,6 @@ def _time_in_range(value: time, start: time, end: time) -> bool:
     return value >= start or value <= end
 
 
-def _median(values: list[int]) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    midpoint = len(ordered) // 2
-    if len(ordered) % 2:
-        return float(ordered[midpoint])
-    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
-
-
 def _path_partitions(path: Path) -> dict[str, str]:
     partitions = {}
     for part in path.parts:

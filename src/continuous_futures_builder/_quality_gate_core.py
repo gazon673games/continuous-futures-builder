@@ -6,10 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
 from continuous_futures_builder.exceptions import ContinuousFuturesError, InputDataError
-from continuous_futures_builder.storage import ContinuousFuturesStorage
+from continuous_futures_builder.schemas import validate_continuous_schema
 
 QualityGateStatus = Literal["approved", "rejected", "split_required"]
 
@@ -132,9 +133,9 @@ def _date_value(value: object) -> object:
     return value.date() if hasattr(value, "date") else value
 
 
-def _validation_status(path: Path) -> tuple[str, str | None]:
+def _validation_status(frame: pl.DataFrame) -> tuple[str, str | None]:
     try:
-        ContinuousFuturesStorage(path.parent).validate_path(path)
+        validate_continuous_schema(frame)
     except ContinuousFuturesError as exc:
         return "failed", str(exc)
     return "ok", None

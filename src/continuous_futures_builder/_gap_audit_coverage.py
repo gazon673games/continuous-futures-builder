@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import polars as pl
@@ -45,7 +45,10 @@ def build_decision_time_coverage(
     decision_tolerance_minutes: int = 5,
     sma_window_bars: int = 42,
 ) -> pl.DataFrame:
-    bad_gaps = _bad_gap_records(session_gaps)
+    bad_gaps_by_day: dict[date, list[dict[str, Any]]] = {}
+    for gap in _bad_gap_records(session_gaps):
+        day = _as_datetime(gap["prev_ts"]).date()
+        bad_gaps_by_day.setdefault(day, []).append(gap)
     grouped = _rows_by_trading_date(dataset)
     coverage_rows: list[dict[str, Any]] = []
     tolerance = timedelta(minutes=decision_tolerance_minutes)
@@ -60,26 +63,23 @@ def build_decision_time_coverage(
         )
         active_contract = _active_contract_for_day(rows, decision_row, decision_dt)
         decision_bar_ts = _as_datetime(decision_row["ts"]) if decision_row else None
-        bars_before_decision = (
-            sum(1 for row in rows if _as_datetime(row["ts"]) <= decision_bar_ts)
+        prior_rows = (
+            [row for row in rows if _as_datetime(row["ts"]) <= decision_bar_ts]
             if decision_bar_ts is not None
-            else 0
+            else []
         )
-        sma_window_available = decision_bar_ts is not None and bars_before_decision >= (
-            sma_window_bars
+        bars_before_decision = len(prior_rows)
+        sma_window_available = (
+            decision_bar_ts is not None and bars_before_decision >= sma_window_bars
         )
         window_start_ts = None
         window_bad_gaps: list[dict[str, Any]] = []
         if sma_window_available and decision_bar_ts is not None:
-            prior_rows = [row for row in rows if _as_datetime(row["ts"]) <= decision_bar_ts][
-                -sma_window_bars:
-            ]
-            window_start_ts = _as_datetime(prior_rows[0]["ts"])
+            window_start_ts = _as_datetime(prior_rows[-sma_window_bars]["ts"])
             window_bad_gaps = [
                 gap
-                for gap in bad_gaps
-                if _as_datetime(gap["prev_ts"]).date() == trading_date
-                and _gap_overlaps_window(gap, window_start_ts, decision_bar_ts)
+                for gap in bad_gaps_by_day.get(trading_date, ())
+                if _gap_overlaps_window(gap, window_start_ts, decision_bar_ts)
             ]
 
         gap_overlaps = any(
@@ -161,7 +161,7 @@ def _gap_summary_by_contract_month(
 
 def _base_contract_month_rows(dataset: pl.DataFrame) -> dict[tuple[str, str], dict[str, Any]]:
     rows: dict[tuple[str, str], dict[str, Any]] = {}
-    for item in dataset.iter_rows(named=True):
+    for item in dataset.select("ts", "active_contract").iter_rows(named=True):
         ts = _as_datetime(item["ts"])
         contract = str(item["active_contract"])
         key = (contract, _month_key(ts))

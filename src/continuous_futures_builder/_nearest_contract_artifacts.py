@@ -5,6 +5,8 @@ from typing import Any
 
 import polars as pl
 
+from continuous_futures_builder._gap_diagnostics_core import SessionGapRow, SessionGapSummary
+from continuous_futures_builder._gap_diagnostics_output import _write_session_gap_reports
 from continuous_futures_builder._nearest_contract_models import (
     NearestContractBuildConfig,
     NearestContractBuildResult,
@@ -22,7 +24,6 @@ from continuous_futures_builder._nearest_contract_rolls import (
     _matches_asset_code,
     _raise_for_missing_expiration_metadata,
     _roll_calendar_frame,
-    _timeframe_minutes,
 )
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.exceptions import (
@@ -30,9 +31,6 @@ from continuous_futures_builder.exceptions import (
     InputDataError,
 )
 from continuous_futures_builder.models import ContractChainResult, FuturesContract
-from continuous_futures_builder.nearest_gap_diagnostics import (
-    write_session_gap_reports,
-)
 from continuous_futures_builder.prefixes import normalize_secid_prefixes
 
 
@@ -43,6 +41,8 @@ def _save_artifacts(
     quality: NearestContractQuality,
     boundaries: list[NearestRollBoundary],
     coverage: pl.DataFrame,
+    session_gap_rows: list[SessionGapRow],
+    session_gap_summary: SessionGapSummary,
 ) -> dict[str, Path]:
     output_path = _dataset_output_path(config)
     reports_dir = _reports_dir(config)
@@ -51,11 +51,8 @@ def _save_artifacts(
     _write_output(frame, output_path, output_root=config.output_root, overwrite=config.overwrite)
 
     roll_calendar = _roll_calendar_frame(boundaries)
-    session_gap_result = write_session_gap_reports(
-        frame,
-        reports_dir,
-        bar_minutes=_timeframe_minutes(config.timeframe),
-        session_model=config.session_model,
+    session_gap_result = _write_session_gap_reports(
+        session_gap_rows, session_gap_summary, reports_dir
     )
     roll_calendar_csv = reports_dir / "roll_calendar.csv"
     roll_calendar_parquet = reports_dir / "roll_calendar.parquet"
@@ -68,13 +65,14 @@ def _save_artifacts(
     roll_calendar.write_parquet(roll_calendar_parquet)
     coverage.write_csv(contract_coverage_csv)
     coverage.write_parquet(contract_coverage_parquet)
-    _write_json(quality_json, quality.model_dump(mode="json"))
+    quality_payload = quality.model_dump(mode="json")
+    _write_json(quality_json, quality_payload)
 
     summary_payload = {
         "output_path": str(output_path),
         "reports_dir": str(reports_dir),
         "metadata_snapshot_ts": metadata_snapshot_ts,
-        **quality.model_dump(mode="json"),
+        **quality_payload,
     }
     _write_json(build_summary_json, summary_payload)
 

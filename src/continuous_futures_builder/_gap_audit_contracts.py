@@ -102,20 +102,20 @@ def build_contract_month_audit(
     if result.height == 0:
         return result
 
-    contract_recommendations: dict[str, str] = {}
+    excluded_contracts: set[str] = set()
     for contract in result.get_column("active_contract").unique().to_list():
         contract_rows = result.filter(pl.col("active_contract") == contract)
         exclude_count = contract_rows.filter(
             pl.col("recommendation") == RECOMMENDATION_EXCLUDE_MONTH
         ).height
         if exclude_count > contract_rows.height / 2:
-            contract_recommendations[str(contract)] = RECOMMENDATION_EXCLUDE_CONTRACT
+            excluded_contracts.add(str(contract))
 
-    if not contract_recommendations:
+    if not excluded_contracts:
         return result.sort(["active_contract", "month"])
 
     return result.with_columns(
-        pl.when(pl.col("active_contract").is_in(list(contract_recommendations)))
+        pl.when(pl.col("active_contract").is_in(excluded_contracts))
         .then(pl.lit(RECOMMENDATION_EXCLUDE_CONTRACT))
         .otherwise(pl.col("recommendation"))
         .alias("recommendation")

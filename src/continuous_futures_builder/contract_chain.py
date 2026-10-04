@@ -32,19 +32,14 @@ def build_contract_chain(
         include_secid=include_secid,
         exclude_secid=exclude_secid,
     )
-    sorted_contracts = sorted(
-        contracts,
-        key=lambda contract: (contract.expiration_date, contract.secid, contract.board),
-    )
-    if len(sorted_contracts) < 2:
-        warnings = [_format_skip(skip) for skip in skipped]
+    warnings = [_format_skip(skip) for skip in skipped]
+    if len(contracts) < 2:
         raise ContractChainError(
             "Contract chain must contain at least two eligible contracts. "
-            f"Found {len(sorted_contracts)}. " + ("; ".join(warnings) if warnings else "")
+            f"Found {len(contracts)}. " + ("; ".join(warnings) if warnings else "")
         )
 
-    warnings = [_format_skip(skip) for skip in skipped]
-    return ContractChainResult(contracts=sorted_contracts, skipped=skipped, warnings=warnings)
+    return ContractChainResult(contracts=contracts, skipped=skipped, warnings=warnings)
 
 
 def contract_by_secid(contracts: list[FuturesContract]) -> dict[str, FuturesContract]:

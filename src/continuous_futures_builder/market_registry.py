@@ -31,7 +31,6 @@ from continuous_futures_builder._market_registry_helpers import (
     _find_quality_approval_path as _find_quality_approval_path,
 )
 from continuous_futures_builder._market_registry_helpers import _jsonable as _jsonable
-from continuous_futures_builder._market_registry_helpers import _median as _median
 from continuous_futures_builder._market_registry_helpers import _optional_date as _optional_date
 from continuous_futures_builder._market_registry_helpers import _optional_float as _optional_float
 from continuous_futures_builder._market_registry_helpers import (

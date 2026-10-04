@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -13,7 +12,7 @@ from continuous_futures_builder.models import (
     RollInvestigationSummary,
     RollReportRow,
 )
-from continuous_futures_builder.roll_report import build_roll_report
+from continuous_futures_builder.roll_report import _roll_report_from_frame
 
 CONTINUOUS_WINDOW_COLUMNS = (
     "ts",
@@ -95,9 +94,8 @@ def _find_transition(
     from_contract: str,
     to_contract: str,
 ) -> tuple[int, dict[str, Any], dict[str, Any]]:
-    indexed = frame.sort("ts").with_row_index("__row_nr")
     previous: dict[str, Any] | None = None
-    for row in indexed.iter_rows(named=True):
+    for index, row in enumerate(frame.iter_rows(named=True)):
         if previous is None:
             previous = row
             continue
@@ -109,7 +107,7 @@ def _find_transition(
             and str(row.get("active_contract")) == to_contract
             and (row_roll_date == roll_date or row_ts == roll_date)
         ):
-            return int(row["__row_nr"]), previous, row
+            return index, previous, row
         previous = row
 
     msg = (
@@ -120,13 +118,13 @@ def _find_transition(
 
 
 def _matching_roll_report_row(
-    path: str | Path,
+    frame: pl.DataFrame,
     *,
     roll_date: date,
     from_contract: str,
     to_contract: str,
 ) -> RollReportRow | None:
-    for row in build_roll_report(path):
+    for row in _roll_report_from_frame(frame):
         if (
             _as_date(row.roll_date) == roll_date
             and row.from_contract == from_contract
@@ -137,12 +135,9 @@ def _matching_roll_report_row(
 
 
 def _continuous_window(frame: pl.DataFrame, roll_index: int, window_rows: int) -> pl.DataFrame:
-    sorted_frame = frame.sort("ts")
     start = max(0, roll_index - window_rows)
-    length = min(sorted_frame.height - start, window_rows * 2 + 1)
-    return sorted_frame.slice(start, length).select(
-        _available_columns(sorted_frame, CONTINUOUS_WINDOW_COLUMNS)
-    )
+    length = min(frame.height - start, window_rows * 2 + 1)
+    return frame.slice(start, length).select(_available_columns(frame, CONTINUOUS_WINDOW_COLUMNS))
 
 
 def _board_from_continuous(frame: pl.DataFrame, secid: str) -> str | None:

@@ -40,10 +40,6 @@ def _choose_roll_date(
     return prior_dates[0], warning
 
 
-def _available_through(dates: list[date]) -> date:
-    return dates[-1]
-
-
 def build_fixed_days_roll_calendar(
     contracts: list[FuturesContract],
     candles_by_contract: dict[str, pl.DataFrame],
@@ -64,7 +60,7 @@ def build_fixed_days_roll_calendar(
             raise RollCalendarError(f"Missing candle data for next contract {next_contract.secid}")
 
         current_dates = _trading_dates(current_candles, current)
-        available_through = _available_through(current_dates)
+        available_through = current_dates[-1]
         if current.expiration_date - available_through > timedelta(
             days=max(FUTURE_EXPIRATION_BUFFER_DAYS, roll_days_before * 3)
         ):
