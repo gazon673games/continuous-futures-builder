@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
@@ -53,19 +52,6 @@ def _null_price_count(frame: pl.DataFrame) -> int:
         frame.select(
             pl.any_horizontal([pl.col(column).is_null() for column in available]).sum()
         ).item()
-    )
-
-
-def _roll_dates(frame: pl.DataFrame) -> list[Any]:
-    if "roll_flag" not in frame.columns or "roll_date" not in frame.columns:
-        return []
-    return (
-        frame.filter(pl.col("roll_flag").fill_null(False))
-        .select("roll_date")
-        .drop_nulls()
-        .unique(maintain_order=True)
-        .get_column("roll_date")
-        .to_list()
     )
 
 

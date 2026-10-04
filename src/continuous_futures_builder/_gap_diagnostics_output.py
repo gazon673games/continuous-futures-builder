@@ -91,19 +91,13 @@ def session_summary_quality_fields(summary: SessionGapSummary) -> dict[str, Any]
 
 
 def _status_from_payload(payload: dict[str, Any]) -> str:
-    if (
-        int(payload.get("row_count") or 0) == 0
-        or int(payload.get("duplicate_ts_count") or 0) > 0
-        or int(payload.get("null_price_count") or 0) > 0
-        or int(payload.get("null_active_contract_count") or 0) > 0
-        or payload.get("errors")
-    ):
+    if int(payload.get("row_count") or 0) == 0:
         return "rejected"
-    if (
-        int(payload.get("unexpected_intraday_gap_count") or 0) > 0
-        or int(payload.get("unknown_gap_count") or 0) > 0
-        or payload.get("warnings")
-    ):
+    invalid_counts = ("duplicate_ts_count", "null_price_count", "null_active_contract_count")
+    if any(int(payload.get(field) or 0) > 0 for field in invalid_counts) or payload.get("errors"):
+        return "rejected"
+    gap_counts = ("unexpected_intraday_gap_count", "unknown_gap_count")
+    if any(int(payload.get(field) or 0) > 0 for field in gap_counts) or payload.get("warnings"):
         return "warning"
     return "ok"
 
