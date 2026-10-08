@@ -16,6 +16,7 @@ QualityGateStatus = Literal["approved", "rejected", "split_required"]
 
 
 class QualityGatePolicy(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     max_duplicate_ts: int = 0
     max_null_price_count: int = 0
     max_null_active_contract_count: int = 0

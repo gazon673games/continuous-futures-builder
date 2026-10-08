@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from ohlcv_data_store.exceptions import SchemaValidationError
 
 from continuous_futures_builder._data_access_local import (
     LocalParquetDataAccess,
@@ -11,7 +12,7 @@ from continuous_futures_builder._data_access_local import (
 from continuous_futures_builder._data_access_protocol import (
     ContinuousFuturesDataAccess,
 )
-from continuous_futures_builder.exceptions import InputDataError
+from continuous_futures_builder.exceptions import ContinuousSeriesValidationError, InputDataError
 from continuous_futures_builder.models import ContractCandleSummary
 from continuous_futures_builder.schemas import (
     validate_candle_schema,
@@ -75,9 +76,13 @@ class OhlcvDataStoreAccess:
                 symbol=symbol,
                 timeframe=timeframe,
             )
+        except SchemaValidationError as exc:
+            raise ContinuousSeriesValidationError(f"Invalid candles for {symbol}: {exc}") from exc
         except Exception as exc:
             raise InputDataError(f"Failed to load candles through ohlcv_data_store: {exc}") from exc
         validate_candle_schema(frame, "ohlcv_data_store candle data")
+        if timeframe == "1d":
+            frame = frame.with_columns(pl.col("ts").dt.date())
         return frame.sort("ts")
 
     def list_metadata_snapshots(

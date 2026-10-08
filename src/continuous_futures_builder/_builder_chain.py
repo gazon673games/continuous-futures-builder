@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-
-from continuous_futures_builder._builder_helpers import _date_from_ts, _norm
+from continuous_futures_builder._builder_helpers import _norm
 from continuous_futures_builder.contract_chain import build_contract_chain
 from continuous_futures_builder.models import (
     ContractCandleSummary,
     ContractChainResult,
-    FuturesContract,
 )
 from continuous_futures_builder.prefixes import normalize_secid_prefixes
 
@@ -25,14 +22,6 @@ class _BuilderChainMixin:
             market=market,
         )
 
-    def _common_assetcode(self, contracts: Iterable[FuturesContract]) -> str | None:
-        assetcodes = {
-            contract.assetcode for contract in contracts if contract.assetcode is not None
-        }
-        if len(assetcodes) == 1:
-            return next(iter(assetcodes))
-        return None
-
     def _augment_chain_from_candle_catalog(
         self,
         chain: ContractChainResult,
@@ -44,14 +33,12 @@ class _BuilderChainMixin:
         secid_prefixes: list[str],
         include_secid: list[str] | None,
         exclude_secid: list[str] | None,
-        asset_code: str | None,
     ) -> ContractChainResult:
         if not secid_prefixes and not include_secid:
             return chain
 
         existing = {_norm(contract.secid) for contract in chain.contracts}
         excluded = {_norm(secid) for secid in exclude_secid or []}
-        default_assetcode = asset_code or self._common_assetcode(chain.contracts)
         summaries = self.data_access.list_contract_candle_summaries(
             exchange=exchange,
             engine=engine,
@@ -60,43 +47,24 @@ class _BuilderChainMixin:
             secid_prefixes=secid_prefixes,
             include_secid=include_secid,
         )
-        additions: list[FuturesContract] = []
         skipped = list(chain.skipped)
         for summary in summaries:
             key = _norm(summary.secid)
             if key in existing or key in excluded:
                 continue
-            expiration_date = _date_from_ts(summary.max_ts)
-            if expiration_date is None:
-                skipped.append(self._skip_from_candle_summary(summary, "missing candle max_ts"))
-                continue
-            additions.append(
-                FuturesContract(
-                    secid=summary.secid,
-                    board=summary.board,
-                    assetcode=default_assetcode,
-                    expiration_date=expiration_date,
-                    last_trade_date=expiration_date,
-                )
+            skipped.append(
+                self._skip_from_candle_summary(summary, "missing trusted expiration metadata")
             )
-            existing.add(key)
 
-        if not additions:
+        if len(skipped) == len(chain.skipped):
             return chain
-
-        contracts = sorted(
-            [*chain.contracts, *additions],
-            key=lambda contract: (contract.expiration_date, contract.secid, contract.board),
-        )
-        warning = (
-            "augmented "
-            f"{len(additions)} contract(s) from existing candle partitions missing from metadata: "
-            + ", ".join(contract.secid for contract in additions)
-        )
         return ContractChainResult(
-            contracts=contracts,
+            contracts=chain.contracts,
             skipped=skipped,
-            warnings=[*chain.warnings, warning],
+            warnings=[
+                *chain.warnings,
+                "Candle-only contracts excluded: supply trusted expiry metadata",
+            ],
         )
 
     def _skip_from_candle_summary(self, summary: ContractCandleSummary, reason: str):
@@ -145,5 +113,4 @@ class _BuilderChainMixin:
             secid_prefixes=prefixes,
             include_secid=include_secid,
             exclude_secid=exclude_secid,
-            asset_code=asset_code,
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,7 @@ def approve_gap_audit(
     allowed_decision_times: list[str] | None = None,
     allowed_sma_window_bars: list[int] | None = None,
 ) -> QualityApprovalResult:
-    if min_usable_decision_day_pct < 0.0 or min_usable_decision_day_pct > 1.0:
+    if not isfinite(min_usable_decision_day_pct) or not 0.0 <= min_usable_decision_day_pct <= 1.0:
         raise ContinuousFuturesError("min_usable_decision_day_pct must be between 0 and 1")
     summary = _read_json(gap_audit_summary_path)
     effective_dataset_path = dataset_path or _optional_path(summary.get("dataset_path"))
@@ -58,6 +59,8 @@ def approve_gap_audit(
     reasons: list[str] = []
     if usable_pct is None:
         reasons.append("usable_decision_day_pct is missing")
+    elif not isfinite(usable_pct) or not 0.0 <= usable_pct <= 1.0:
+        reasons.append("usable_decision_day_pct must be finite and between 0 and 1")
     elif usable_pct < min_usable_decision_day_pct:
         reasons.append(
             f"usable_decision_day_pct {usable_pct} is below {min_usable_decision_day_pct}"

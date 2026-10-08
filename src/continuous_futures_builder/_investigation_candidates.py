@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from continuous_futures_builder.exceptions import ContinuousFuturesError
 from continuous_futures_builder.models import (
     CandidateContractInvestigation,
     ContractCandleSummary,
+    PrunedContract,
 )
 from continuous_futures_builder.prefixes import (
     matches_any_secid_prefix,
@@ -37,7 +37,7 @@ def _build_pruning_diagnostics(
     secid_prefixes: list[str],
     roll_days_before: int,
     warnings: list[str],
-) -> tuple[dict[str, str], set[str]]:
+) -> tuple[dict[str, PrunedContract], set[str]]:
     try:
         result = ContinuousFuturesBuilder(data_root).build(
             exchange=exchange,
@@ -56,18 +56,8 @@ def _build_pruning_diagnostics(
         warnings.append(f"failed to rebuild pruning diagnostics: {exc}")
         return {}, set()
 
-    pruning = {
-        secid.upper(): reason
-        for secid, reason in zip(result.pruned_contracts, result.pruning_reasons, strict=False)
-    }
+    pruning = {item.secid.upper(): item for item in result.pruning_details if item.secid}
     return pruning, {secid.upper() for secid in result.empty_active_segments}
-
-
-def _parse_segment_bound(reason: str, key: str) -> date | None:
-    match = re.search(rf"{key}=([0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}|None)", reason)
-    if match is None or match.group(1) == "None":
-        return None
-    return date.fromisoformat(match.group(1))
 
 
 def _active_segments(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
@@ -93,7 +83,7 @@ def _candidate_contract_ids(
     to_contract: str,
     metadata: dict[str, dict[str, Any]],
     summaries: list[ContractCandleSummary],
-    pruning: dict[str, str],
+    pruning: dict[str, PrunedContract],
 ) -> list[str]:
     from_year = _contract_year(from_contract, anchor_year) or anchor_year
     to_year = _contract_year(to_contract, anchor_year) or anchor_year

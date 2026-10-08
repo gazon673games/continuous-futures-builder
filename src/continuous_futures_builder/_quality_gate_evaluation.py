@@ -15,6 +15,7 @@ from continuous_futures_builder._quality_gate_core import (
 )
 from continuous_futures_builder._quality_gate_metrics import (
     _quality_gate_metrics_from_frame,
+    attach_build_metrics,
 )
 from continuous_futures_builder.quality import _quality_report_from_frame
 from continuous_futures_builder.roll_report import _roll_report_from_frame
@@ -29,7 +30,9 @@ def evaluate_quality_gate(
     frame = pl.read_parquet(target)
     roll_rows = _roll_report_from_frame(frame)
     quality_report = _quality_report_from_frame(target, frame, roll_rows)
-    metrics = _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
+    metrics = attach_build_metrics(
+        target, _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
+    )
 
     rejected_reasons: list[str] = []
     split_reasons: list[str] = []
@@ -97,6 +100,12 @@ def evaluate_quality_gate(
             f"{effective_policy.max_family_transition_gap_pct:.4f}"
         )
 
+    if not effective_policy.allow_empty_active_segments and metrics.empty_active_segments is None:
+        rejected_reasons.append(
+            "empty_active_segments is unknown: provide a matching build manifest"
+        )
+    if effective_policy.max_contracts_pruned is not None and metrics.contracts_pruned is None:
+        rejected_reasons.append("contracts_pruned is unknown: provide a matching build manifest")
     if (
         not effective_policy.allow_empty_active_segments
         and metrics.empty_active_segments is not None

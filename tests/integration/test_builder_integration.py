@@ -132,8 +132,8 @@ def test_builder_augments_chain_from_existing_candle_partitions(temp_data_root):
         secid_prefix="CR",
     )
 
-    assert chain.contract_ids == ["CRH4", "CRM4", "CRU4", "CRZ4"]
-    assert any("augmented 2 contract(s)" in warning for warning in chain.warnings)
+    assert chain.contract_ids == ["CRU4", "CRZ4"]
+    assert any("trusted expiry metadata" in warning for warning in chain.warnings)
 
 
 def test_build_result_includes_pruning_diagnostics(temp_data_root):
@@ -167,6 +167,8 @@ def test_build_result_includes_pruning_diagnostics(temp_data_root):
     )
     target = source.parent.parent / "symbol=CRM4A" / "timeframe=1d"
     shutil.copytree(source, target)
+    for copied in target.glob("*.parquet"):
+        pl.read_parquet(copied).with_columns(pl.lit("CRM4A").alias("symbol")).write_parquet(copied)
 
     result = ContinuousFuturesBuilder(temp_data_root).build(
         metadata_snapshot_ts="20240101T000000Z",

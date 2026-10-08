@@ -1,6 +1,5 @@
 """Public facade for the split nearest gap diagnostics module."""
 
-from continuous_futures_builder._gap_diagnostics_analysis import _classify_gap as _classify_gap
 from continuous_futures_builder._gap_diagnostics_analysis import (
     build_session_gap_rows as build_session_gap_rows,
 )
@@ -32,23 +31,11 @@ from continuous_futures_builder._gap_diagnostics_core import (
 from continuous_futures_builder._gap_diagnostics_core import SessionGapRow as SessionGapRow
 from continuous_futures_builder._gap_diagnostics_core import SessionGapSummary as SessionGapSummary
 from continuous_futures_builder._gap_diagnostics_core import TradingSession as TradingSession
-from continuous_futures_builder._gap_diagnostics_core import _as_datetime as _as_datetime
-from continuous_futures_builder._gap_diagnostics_core import (
-    _is_expected_session_break as _is_expected_session_break,
-)
-from continuous_futures_builder._gap_diagnostics_core import _near_session_end as _near_session_end
-from continuous_futures_builder._gap_diagnostics_core import (
-    _near_session_start as _near_session_start,
-)
-from continuous_futures_builder._gap_diagnostics_core import _unique_string as _unique_string
 from continuous_futures_builder._gap_diagnostics_core import (
     default_moex_futures_session_model as default_moex_futures_session_model,
 )
 from continuous_futures_builder._gap_diagnostics_core import (
     parse_session_options as parse_session_options,
-)
-from continuous_futures_builder._gap_diagnostics_output import (
-    _status_from_payload as _status_from_payload,
 )
 from continuous_futures_builder._gap_diagnostics_output import (
     diagnose_dataset_session_gaps as diagnose_dataset_session_gaps,

@@ -101,6 +101,7 @@ class SourceContractInvestigation(BaseModel):
 
 
 class CandidateContractInvestigation(BaseModel):
+    pruning_category: str | None = None
     secid: str
     board: str | None = None
     metadata_found: bool = False

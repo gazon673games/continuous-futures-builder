@@ -31,6 +31,10 @@ def audit_session_calendar(
     payload = _read_json(calendar_path, "session calendar")
     issues: list[str] = []
     warnings: list[str] = []
+    if "observed" in str(payload.get("calendar_type", "")) or "observed" in str(
+        payload.get("trading_calendar", "")
+    ):
+        issues.append("Expected calendar must be independent of the checked dataset")
     for field_name in ("main_session_start", "main_session_end"):
         if not payload.get(field_name):
             issues.append(f"{field_name} is required")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -131,13 +132,16 @@ def audit_instrument_registry(
         seen_symbols.add(symbol)
         _require_positive(item, "contract_multiplier", symbol, issues)
         _require_positive(item, "lot_size", symbol, issues)
+        for field, value in item.items():
+            if isinstance(value, int | float) and not isfinite(value):
+                issues.append(f"{symbol}: {field} must be finite")
         tick_size = _optional_float(item.get("tick_size"))
         tick_value = _optional_float(item.get("tick_value"))
         if tick_size is None and tick_value is None:
             issues.append(f"{symbol}: tick_size or tick_value is required")
-        if tick_size is not None and tick_size <= 0.0:
+        if tick_size is not None and (not isfinite(tick_size) or tick_size <= 0.0):
             issues.append(f"{symbol}: tick_size must be positive")
-        if tick_value is not None and tick_value <= 0.0:
+        if tick_value is not None and (not isfinite(tick_value) or tick_value <= 0.0):
             issues.append(f"{symbol}: tick_value must be positive")
         if _optional_float(item.get("initial_margin")) is None:
             warnings.append(f"{symbol}: initial_margin is missing")

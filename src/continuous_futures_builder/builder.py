@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 from continuous_futures_builder._builder_chain import _BuilderChainMixin
@@ -36,7 +38,6 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             self.data_root,
             allow_local_fallback=allow_local_fallback,
         )
-        self.storage = ContinuousFuturesStorage(self.output_root)
 
     def build(
         self,
@@ -121,7 +122,7 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             if prefix not in prefixes_used:
                 prefixes_used.append(prefix)
 
-        return ContinuousFuturesBuildResult(
+        result = ContinuousFuturesBuildResult(
             output_path=output_path,
             row_count=frame.height,
             start_ts=frame.get_column("ts").min(),
@@ -131,6 +132,7 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             contracts_pruned=len(pruned_contracts),
             pruned_contracts=[contract.secid or "<unknown>" for contract in pruned_contracts],
             pruning_reasons=[contract.reason for contract in pruned_contracts],
+            pruning_details=pruned_contracts,
             empty_active_segments=[
                 contract.secid or "<unknown>"
                 for contract in pruned_contracts
@@ -144,3 +146,13 @@ class ContinuousFuturesBuilder(_BuilderSeriesMixin, _BuilderChainMixin):
             max_abs_family_transition_gap=max_abs_transition_gap(family_transitions),
             warnings=warnings,
         )
+
+        if output_path is not None:
+            manifest = {
+                "dataset_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+                "build": result.model_dump(mode="json"),
+            }
+            output_path.with_suffix(".build.json").write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
+        return result

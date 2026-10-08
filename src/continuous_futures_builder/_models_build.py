@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from continuous_futures_builder._models_contracts import (
     ContractFamilyTransition,
+    PrunedContract,
     RollEvent,
 )
 from continuous_futures_builder.constants import (
@@ -99,6 +100,7 @@ class ContinuousFuturesBuildResult(BaseModel):
     contracts_pruned: int = 0
     pruned_contracts: list[str] = Field(default_factory=list)
     pruning_reasons: list[str] = Field(default_factory=list)
+    pruning_details: list[PrunedContract] = Field(default_factory=list)
     empty_active_segments: list[str] = Field(default_factory=list)
     roll_count: int
     prefixes_used: list[str] = Field(default_factory=list)

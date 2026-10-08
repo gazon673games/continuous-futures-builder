@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+from ohlcv_data_store.market_values import market_value_issues
 
 from continuous_futures_builder.constants import (
     INPUT_CANDLE_COLUMNS,
@@ -24,6 +25,9 @@ def validate_candle_schema(
     frame: pl.DataFrame | pl.LazyFrame, context: str = "candle data"
 ) -> None:
     require_columns(frame, INPUT_CANDLE_COLUMNS, context)
+    issues = market_value_issues(frame)
+    if issues:
+        raise InputDataError(f"{context}: {'; '.join(issues)}")
 
 
 def validate_metadata_schema(frame: pl.DataFrame, context: str = "metadata snapshot") -> None:
@@ -40,8 +44,19 @@ def validate_continuous_schema(frame: pl.DataFrame) -> None:
     if frame.height == 0:
         raise ContinuousSeriesValidationError("continuous series is empty")
 
+    issues = market_value_issues(frame)
+    if issues:
+        raise ContinuousSeriesValidationError("; ".join(issues))
+
     if frame["active_contract"].null_count() > 0:
         raise ContinuousSeriesValidationError("active_contract must be non-null")
+    if frame["ts"].null_count():
+        raise ContinuousSeriesValidationError("ts must be non-null")
+    for column in ("open", "high", "low", "close", "adjustment_factor"):
+        if not frame.schema[column].is_numeric():
+            raise ContinuousSeriesValidationError(f"{column} must be numeric")
+        if frame[column].null_count() or not frame[column].is_finite().all():
+            raise ContinuousSeriesValidationError(f"{column} must contain finite values")
 
     if frame["source_contract_symbol"].null_count() > 0:
         raise ContinuousSeriesValidationError("source_contract_symbol must be non-null")

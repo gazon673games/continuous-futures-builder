@@ -56,8 +56,8 @@ def test_build_observed_session_calendar_marks_missing_weekday_and_short_day(
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert result.item_count == 2
-    assert "2024-01-03" in payload["holiday_dates"]
-    assert payload["short_day_dates"] == ["2024-01-04"]
+    assert "2024-01-03" in payload["unobserved_weekdays"]
+    assert payload["short_session_candidates"] == ["2024-01-04"]
 
 
 def test_build_dataset_catalog_indexes_derived_dataset(tmp_path: Path) -> None:
@@ -181,7 +181,7 @@ def test_prepare_backtest_artifacts_builds_manifest(tmp_path: Path) -> None:
     )
 
     assert manifest["registry_audit"]["audit_status"] == "approved"
-    assert manifest["calendar_audit"]["audit_status"] == "approved"
+    assert manifest["calendar_audit"]["audit_status"] == "rejected"
     assert (tmp_path / "artifacts" / "data_catalog.json").exists()
     catalog = json.loads((tmp_path / "artifacts" / "data_catalog.json").read_text())
     assert catalog["entries"][0]["instrument_registry_audit_path"]

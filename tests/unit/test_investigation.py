@@ -103,6 +103,8 @@ def test_candidate_summary_includes_pruned_contracts(temp_data_root):
     source = _candle_path(temp_data_root, "CRM4").parent
     target = source.parent.parent / "symbol=CRM4A" / "timeframe=1d"
     shutil.copytree(source, target)
+    for copied in target.glob("*.parquet"):
+        pl.read_parquet(copied).with_columns(pl.lit("CRM4A").alias("symbol")).write_parquet(copied)
     output_path = _build_fixture_output(temp_data_root)
 
     investigation = investigate_roll(

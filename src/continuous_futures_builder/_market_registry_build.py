@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import time
 from pathlib import Path
-from statistics import median
 from typing import Any
 
 from continuous_futures_builder._market_registry_helpers import (
@@ -13,15 +12,14 @@ from continuous_futures_builder._market_registry_helpers import (
     _parse_raw_metadata,
     _path_sha256,
     _read_parquet_path,
-    _time_in_range,
     _utc_now,
-    _weekday_dates_between,
     _write_json,
 )
 from continuous_futures_builder._market_registry_models import (
     ArtifactWriteResult,
 )
 from continuous_futures_builder.exceptions import ContinuousFuturesError
+from continuous_futures_builder.session_calendar import observe_sessions
 
 
 def build_moex_instrument_registry(
@@ -110,27 +108,13 @@ def build_observed_session_calendar(
     if not timestamps:
         raise ContinuousFuturesError("dataset is empty")
 
-    observed_dates = {value.date() for value in timestamps}
-    dates = sorted(observed_dates)
-    trading_dates = [value.isoformat() for value in dates]
-    holiday_dates = [
-        value.isoformat()
-        for value in _weekday_dates_between(dates[0], dates[-1])
-        if value not in observed_dates
-    ]
-    main_counts: dict[date, int] = {value: 0 for value in dates}
-    for ts in timestamps:
-        if _time_in_range(ts.time(), main_session_start, main_session_end):
-            main_counts[ts.date()] += 1
-    positive_counts = [value for value in main_counts.values() if value > 0]
-    expected_count = int(median(positive_counts)) if positive_counts else 0
-    short_threshold = expected_count * short_day_bar_ratio
-    short_days = [
-        value.isoformat()
-        for value, count in sorted(main_counts.items())
-        if expected_count > 0 and 0 < count < short_threshold
-    ]
-
+    observed = observe_sessions(
+        timestamps,
+        main_start=main_session_start,
+        main_end=main_session_end,
+        short_day_ratio=short_day_bar_ratio,
+    )
+    trading_dates = observed["trading_dates"]
     payload = {
         "calendar_version": 1,
         "calendar_type": "observed_dataset_sessions",
@@ -153,9 +137,7 @@ def build_observed_session_calendar(
         ),
         "short_day_policy": "allow",
         "trading_dates": trading_dates,
-        "holiday_dates": holiday_dates,
-        "short_day_dates": short_days,
-        "expected_main_session_bar_count": expected_count,
+        **observed,
         "short_day_bar_ratio": short_day_bar_ratio,
     }
     _write_json(output_path, payload)

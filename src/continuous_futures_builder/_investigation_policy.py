@@ -13,26 +13,19 @@ def classify_roll_outlier(
     structural_gap: StructuralGapDiagnostics,
 ) -> tuple[str, list[str], str]:
     has_absent_contracts = any(
-        candidate.pruned
-        and candidate.pruning_reason is not None
-        and "not present in metadata snapshot or candle catalog" in candidate.pruning_reason
+        candidate.pruned and not candidate.metadata_found and not candidate.candles_found
         for candidate in candidates
     )
     has_metadata_missing = any(
         not candidate.metadata_found and candidate.candles_found for candidate in candidates
     )
     has_sparse_contracts = any(
-        candidate.pruning_reason is not None
-        and (
-            "no candle exists before expiration" in candidate.pruning_reason
-            or "no candle partition" in candidate.pruning_reason
-        )
+        candidate.pruning_category == "sparse_contract"
+        or (candidate.metadata_found and not candidate.candles_found)
         for candidate in candidates
     )
     has_empty_segments = any(
-        candidate.pruning_reason is not None
-        and "active segment is empty" in candidate.pruning_reason
-        for candidate in candidates
+        candidate.pruning_category == "empty_active_segment" for candidate in candidates
     ) or any(candidate.active_segment_row_count == 0 for candidate in candidates)
     large_gap = (
         roll_gap_pct is not None and abs(roll_gap_pct) >= structural_gap.roll_gap_pct_threshold

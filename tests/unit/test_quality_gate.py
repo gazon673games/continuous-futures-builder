@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
@@ -70,6 +71,15 @@ def _continuous_row(
 def _write_continuous(path: Path, rows: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(rows).select(OUTPUT_COLUMNS).write_parquet(path)
+    path.with_suffix(".build.json").write_text(
+        json.dumps(
+            {
+                "dataset_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "build": {"empty_active_segments": [], "contracts_pruned": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
     return path
 
 

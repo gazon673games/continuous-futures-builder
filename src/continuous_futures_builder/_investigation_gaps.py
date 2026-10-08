@@ -5,7 +5,6 @@ from typing import Any
 import polars as pl
 
 from continuous_futures_builder._investigation_candidates import (
-    _parse_segment_bound,
     _segment_row_count,
 )
 from continuous_futures_builder._investigation_core import (
@@ -19,6 +18,7 @@ from continuous_futures_builder._investigation_sources import (
 from continuous_futures_builder.models import (
     CandidateContractInvestigation,
     ContractCandleSummary,
+    PrunedContract,
     SourceContractInvestigation,
     StructuralGapDiagnostics,
 )
@@ -31,7 +31,7 @@ def _candidate_summaries(
     anchor_year: int,
     metadata: dict[str, dict[str, Any]],
     summaries: list[ContractCandleSummary],
-    pruning: dict[str, str],
+    pruning: dict[str, PrunedContract],
     empty_active_segments: set[str],
     active_segments: dict[str, dict[str, Any]],
     candles_by_secid: dict[str, pl.DataFrame],
@@ -43,7 +43,8 @@ def _candidate_summaries(
         metadata_row = metadata.get(secid)
         candle_summary = summary_by_secid.get(secid)
         active_segment = active_segments.get(secid)
-        pruning_reason = pruning.get(secid)
+        pruning_detail = pruning.get(secid)
+        pruning_reason = pruning_detail.reason if pruning_detail is not None else None
         metadata_found = metadata_row is not None
         candles_found = candle_summary is not None and candle_summary.row_count > 0
         board = None
@@ -57,15 +58,13 @@ def _candidate_summaries(
             )
         if board is None and candle_summary is not None:
             board = candle_summary.board
-        if expiration_date is None and candle_summary is not None:
-            expiration_date = candle_summary.max_ts
 
         active_start = active_segment.get("min_ts") if active_segment is not None else None
         active_end = active_segment.get("max_ts") if active_segment is not None else None
         active_row_count = int(active_segment["row_count"]) if active_segment is not None else None
-        if pruning_reason and "active segment is empty" in pruning_reason:
-            active_start = _parse_segment_bound(pruning_reason, "start")
-            active_end = _parse_segment_bound(pruning_reason, "end")
+        if pruning_detail is not None and pruning_detail.category == "empty_active_segment":
+            active_start = pruning_detail.start
+            active_end = pruning_detail.end
             active_row_count = _segment_row_count(
                 candles_by_secid.get(secid, _empty_candle_frame()),
                 _as_date(active_start),
@@ -105,6 +104,7 @@ def _candidate_summaries(
                 active_segment_row_count=active_row_count,
                 pruned=pruned,
                 pruning_reason=pruning_reason,
+                pruning_category=pruning_detail.category if pruning_detail is not None else None,
             )
         )
 

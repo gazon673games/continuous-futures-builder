@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +59,8 @@ def build_quality_gate_metrics(path: str | Path) -> QualityGateMetrics:
     frame = pl.read_parquet(target)
     roll_rows = _roll_report_from_frame(frame)
     quality_report = _quality_report_from_frame(target, frame, roll_rows)
-    return _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
+    metrics = _quality_gate_metrics_from_frame(frame, quality_report, roll_rows)
+    return attach_build_metrics(target, metrics)
 
 
 def _quality_gate_metrics_from_frame(
@@ -96,4 +99,20 @@ def _quality_gate_metrics_from_frame(
         validation_status=validation_status,
         validation_error=validation_error,
         quality_status=quality_report.status,
+    )
+
+
+def attach_build_metrics(path: Path, metrics: QualityGateMetrics) -> QualityGateMetrics:
+    manifest_path = path.with_suffix(".build.json")
+    if not manifest_path.exists():
+        return metrics
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("dataset_sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+        return metrics
+    build = manifest["build"]
+    return metrics.model_copy(
+        update={
+            "empty_active_segments": len(build["empty_active_segments"]),
+            "contracts_pruned": int(build["contracts_pruned"]),
+        }
     )

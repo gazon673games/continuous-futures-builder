@@ -6,7 +6,6 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from continuous_futures_builder import data_access
 from continuous_futures_builder.builder import ContinuousFuturesBuilder
 from continuous_futures_builder.data_access import (
     LocalParquetDataAccess,
@@ -202,7 +201,9 @@ def test_builder_uses_data_access_abstraction(fixture_root, tmp_path):
 
 
 def test_clear_error_when_data_store_unavailable_and_no_fallback(monkeypatch, tmp_path):
-    monkeypatch.setattr(data_access, "_load_data_store_class", lambda: None)
+    monkeypatch.setattr(
+        "continuous_futures_builder._data_access_store._load_data_store_class", lambda: None
+    )
 
     with pytest.raises(InputDataError, match="ohlcv_data_store is not installed"):
         create_data_access(tmp_path, allow_local_fallback=False)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, date, datetime, time
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,7 @@ def _require_positive(
     value = _optional_float(item.get(field_name))
     if value is None:
         issues.append(f"{symbol}: {field_name} is required")
-    elif value <= 0.0:
+    elif not isfinite(value) or value <= 0.0:
         issues.append(f"{symbol}: {field_name} must be positive")
 
 
@@ -152,22 +153,6 @@ def _as_datetime(value: Any) -> datetime:
     if isinstance(value, date):
         return datetime.combine(value, time.min)
     return datetime.fromisoformat(str(value))
-
-
-def _weekday_dates_between(start: date, end: date) -> list[date]:
-    days = []
-    current = start
-    while current <= end:
-        if current.weekday() < 5:
-            days.append(current)
-        current = date.fromordinal(current.toordinal() + 1)
-    return days
-
-
-def _time_in_range(value: time, start: time, end: time) -> bool:
-    if start <= end:
-        return start <= value <= end
-    return value >= start or value <= end
 
 
 def _path_partitions(path: Path) -> dict[str, str]:
